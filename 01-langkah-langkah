@@ -10,7 +10,7 @@ window.onload = () => {
 Ganti jadi:
 
 
-const FIXED_URL = 'https://script.google.com/macros/s/xxx.../exec'; // ← paste URL deployment kamu
+const FIXED_URL = 'https://script.google.com/macros/s/AKfycby6p7Hzmrus0uJ2bzecWpNCteZfH-94maL6mpsm5R0hlquzaMEru0GsG5rlluSRsJ9i/exec'; // ← paste URL deployment kamu
 
 window.onload = () => {
   GAS_URL = FIXED_URL;
