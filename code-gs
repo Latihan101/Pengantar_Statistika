@@ -5,7 +5,7 @@
 
 // ── KONFIGURASI (WAJIB DIISI) ───────────────────────────────────
 const CONFIG = {
-  DOSEN_EMAIL: "dosen@email.com",       // Email login dosen
+  DOSEN_EMAIL: "yikapps98@gmail.com",       // Email login dosen
   DOSEN_PASSWORD: "dosen123",           // Password dosen
   DOSEN_NAMA: "Dr. Budi Santoso",       // Nama dosen
   NAMA_MATKUL: "Pemrograman Web",       // Nama mata kuliah
@@ -93,7 +93,7 @@ function doPost(e) {
 // INIT SHEETS
 // ════════════════════════════════════════════════════════════════
 function initSheets() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(SS_ID);
   const headers = {
     [SHEETS.MAHASISWA]:    ["id","nama","email","password","nim","semester","prodi","created_at"],
     [SHEETS.PERTEMUAN]:    ["id","pertemuan_ke","topik","tanggal","keterangan"],
@@ -492,8 +492,10 @@ function handleUpdateProfile(data) {
 // ════════════════════════════════════════════════════════════════
 // HELPERS — SPREADSHEET CRUD
 // ════════════════════════════════════════════════════════════════
+const SS_ID = "1-Jx4JYAv0I24iOzqYSEhboyjEL1UaqbLD8jzSs2A5Ds"; // ← isi ID dari langkah 1
+
 function getSheet(name) {
-  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  return SpreadsheetApp.openById(SS_ID).getSheetByName(name);
 }
 
 function getSheetData(name) {
