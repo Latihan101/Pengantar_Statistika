@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EduCampus</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --indigo:#4338CA;--indigo-d:#3730A3;--indigo-l:#EEF2FF;--indigo-m:#6366F1;
+  --slate:#1E293B;--muted:#64748B;--border:#E2E8F0;
+  --bg:#F8FAFC;--white:#FFFFFF;
+  --green:#059669;--green-bg:#ECFDF5;
+  --amber:#D97706;--amber-bg:#FFFBEB;
+  --red:#DC2626;--red-bg:#FEF2F2;
+  --blue:#2563EB;--blue-bg:#EFF6FF;
+  --sidebar-w:244px;--topbar-h:60px;
+}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--slate);font-size:14px;line-height:1.5}
+
+/* CONFIG SCREEN */
+#configScreen{display:flex;min-height:100vh;align-items:center;justify-content:center;background:linear-gradient(135deg,#0F172A,#1E293B)}
+.config-card{background:#fff;border-radius:16px;padding:36px;width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+.config-title{font-size:18px;font-weight:700;color:var(--slate);margin-bottom:6px}
+.config-sub{font-size:13px;color:var(--muted);margin-bottom:24px}
+.config-step{display:flex;gap:10px;margin-bottom:16px;align-items:flex-start}
+.step-num{width:24px;height:24px;border-radius:50%;background:var(--indigo);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.step-text{font-size:13px;color:var(--slate);line-height:1.6}
+.step-text code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px;color:var(--indigo);border:1px solid var(--border)}
+.cfg-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;margin-top:16px;display:block}
+.cfg-input{width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;color:var(--slate);outline:none;font-family:monospace}
+.cfg-input:focus{border-color:var(--indigo)}
+.cfg-btn{width:100%;margin-top:20px;padding:12px;background:var(--indigo);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+.cfg-btn:hover{background:var(--indigo-d)}
+.cfg-err{background:var(--red-bg);color:var(--red);padding:10px 14px;border-radius:8px;font-size:13px;margin-top:12px;display:none}
+
+/* LOGIN */
+#loginScreen{display:none;min-height:100vh;align-items:center;justify-content:center;background:linear-gradient(135deg,#1E293B,#334155)}
+.login-card{background:#fff;border-radius:16px;padding:40px 36px;width:400px;box-shadow:0 20px 60px rgba(0,0,0,0.2)}
+.brand-row{display:flex;align-items:center;gap:12px;margin-bottom:28px;justify-content:center}
+.brand-ico{width:44px;height:44px;background:var(--indigo);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.brand-name{font-size:20px;font-weight:700;color:var(--slate)}
+.brand-sub{font-size:11px;color:var(--muted);letter-spacing:0.5px}
+.tabs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:20px}
+.tab{padding:9px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;text-align:center;font-size:12px;font-weight:500;color:var(--muted);background:#fff;transition:all 0.15s}
+.tab.active{border-color:var(--indigo);background:var(--indigo-l);color:var(--indigo)}
+.lbl{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.4px}
+.inp{width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;color:var(--slate);outline:none;margin-bottom:14px}
+.inp:focus{border-color:var(--indigo)}
+.inp-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn-primary{width:100%;padding:12px;background:var(--indigo);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+.btn-primary:hover{background:var(--indigo-d)}
+.auth-toggle{font-size:12px;color:var(--muted);text-align:center;margin-top:16px;cursor:pointer}
+.auth-toggle span{color:var(--indigo);font-weight:500}
+.err-box{background:var(--red-bg);color:var(--red);border-radius:7px;padding:9px 12px;font-size:13px;margin-bottom:12px;display:none}
+.ok-box{background:var(--green-bg);color:var(--green);border-radius:7px;padding:9px 12px;font-size:13px;margin-bottom:12px;display:none}
+
+/* APP */
+#appShell{display:none;height:100vh;flex-direction:row}
+.sidebar{width:var(--sidebar-w);background:var(--slate);display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.sb-brand{padding:16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,0.07)}
+.sb-ico{width:34px;height:34px;background:var(--indigo);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px}
+.sb-name{color:#fff;font-weight:700;font-size:14px}
+.sb-sub{color:rgba(255,255,255,0.35);font-size:10px}
+.sb-user{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;gap:10px}
+.sb-av{width:34px;height:34px;border-radius:50%;background:var(--indigo-m);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;flex-shrink:0}
+.sb-uname{color:#fff;font-size:12px;font-weight:500}
+.sb-uid{color:rgba(255,255,255,0.4);font-size:10px}
+.nav-scroll{flex:1;overflow-y:auto;padding:8px 0}
+.nav-sec{padding:10px 20px 4px;color:rgba(255,255,255,0.28);font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase}
+.nav-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:7px;cursor:pointer;color:rgba(255,255,255,0.5);margin:1px 8px;font-size:13px;transition:all 0.15s}
+.nav-item:hover{background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.85)}
+.nav-item.active{background:var(--indigo);color:#fff;font-weight:500}
+.nav-ico{font-size:15px;width:20px;text-align:center}
+.sb-bottom{padding:10px 8px;border-top:1px solid rgba(255,255,255,0.07)}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{height:var(--topbar-h);background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:12px}
+.page-title{font-size:15px;font-weight:600;flex:1}
+.tb-av{width:32px;height:32px;border-radius:50%;background:var(--indigo-m);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.content{flex:1;overflow-y:auto;padding:24px}
+
+/* CARDS & TABLES */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.stat-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:16px}
+.stat-ico{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;margin-bottom:10px}
+.stat-lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px}
+.stat-val{font-size:24px;font-weight:700;color:var(--slate)}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:4px}
+.card{background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:16px}
+.card-hd{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.card-title{font-size:13px;font-weight:600;color:var(--slate)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border);background:var(--bg)}
+.tbl td{padding:11px 16px;border-bottom:1px solid var(--border)}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:var(--bg)}
+.badge{font-size:10px;font-weight:600;padding:3px 8px;border-radius:10px}
+.grade-pill{display:inline-flex;padding:3px 10px;border-radius:10px;font-weight:700;font-size:12px}
+.av-sm{width:30px;height:30px;border-radius:50%;background:var(--indigo-m);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.courses-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.course-card{background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:box-shadow 0.15s}
+.course-card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.08)}
+.course-banner{height:5px}
+.course-body{padding:14px}
+.progress-bar{height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:10px}
+.progress-fill{height:100%;border-radius:2px}
+.progress-lbl{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px}
+.list-item{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s}
+.list-item:last-child{border-bottom:none}
+.list-item:hover{background:var(--bg)}
+.item-ico{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px}
+.item-info{flex:1}
+.item-name{font-size:13px;font-weight:500}
+.item-meta{font-size:11px;color:var(--muted);margin-top:2px}
+.sched-item{display:flex;align-items:stretch;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.sched-item:last-child{border-bottom:none}
+.sched-bar{width:3px;border-radius:2px}
+.sched-info{flex:1}
+
+/* MODAL */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:100;display:none}
+.modal-bg.open{display:flex}
+.modal{background:#fff;border-radius:12px;padding:28px;width:480px;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.2)}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center}
+.modal-close{cursor:pointer;color:var(--muted);font-size:20px;line-height:1}
+.form-group{margin-bottom:14px}
+.form-label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:5px}
+.form-input{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;color:var(--slate);outline:none}
+.form-input:focus{border-color:var(--indigo)}
+.form-select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;color:var(--slate);outline:none;background:#fff}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn-group{display:flex;gap:8px;margin-top:20px;justify-content:flex-end}
+.btn-sec{padding:9px 18px;border:1.5px solid var(--border);background:#fff;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer}
+.btn-pri{padding:9px 18px;background:var(--indigo);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
+.btn-pri:hover{background:var(--indigo-d)}
+.btn-danger{padding:9px 18px;background:var(--red);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
+.btn-sm{padding:5px 12px;border:1px solid var(--border);background:#fff;border-radius:6px;font-size:12px;cursor:pointer;color:var(--slate)}
+.btn-sm:hover{background:var(--bg)}
+.btn-sm-pri{padding:5px 12px;background:var(--indigo);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:500}
+.btn-sm-red{padding:5px 12px;background:var(--red-bg);color:var(--red);border:none;border-radius:6px;font-size:12px;cursor:pointer}
+.input-grade{width:70px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;text-align:center;outline:none}
+.input-grade:focus{border-color:var(--indigo)}
+
+/* UTILS */
+.empty-state{text-align:center;padding:48px 24px;color:var(--muted)}
+.empty-state .emo{font-size:36px;margin-bottom:10px}
+.empty-state h3{font-size:14px;font-weight:600;color:var(--slate);margin-bottom:5px}
+.loading{text-align:center;padding:32px;color:var(--muted);font-size:13px}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--slate);color:#fff;padding:12px 18px;border-radius:9px;font-size:13px;font-weight:500;z-index:999;opacity:0;transform:translateY(8px);transition:all 0.2s;pointer-events:none}
+.toast.show{opacity:1;transform:translateY(0)}
+.section-head{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:14px}
+.profile-header{padding:24px;display:flex;align-items:center;gap:20px;border-bottom:1px solid var(--border)}
+.profile-av{width:68px;height:68px;border-radius:50%;background:var(--indigo-m);color:#fff;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.profile-field{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
+.profile-field:last-child{border-bottom:none}
+.pf-lbl{font-size:12px;color:var(--muted)}
+.pf-val{font-size:13px;font-weight:500}
+.profile-sec{padding:16px 24px;border-bottom:1px solid var(--border)}
+.profile-sec:last-child{border-bottom:none}
+.profile-sec-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
+</style>
+</head>
+<body>
+
+<!-- CONFIG -->
+<div id="configScreen">
+  <div class="config-card">
+    <div style="font-size:28px;margin-bottom:12px">⚙️</div>
+    <div class="config-title">Hubungkan ke Supabase</div>
+    <div class="config-sub">Lakukan sekali saja. Isi URL dan API Key dari project Supabase kamu.</div>
+    <div class="config-step"><div class="step-num">1</div><div class="step-text">Buka <strong>supabase.com</strong> → Project kamu → <code>Settings → API</code></div></div>
+    <div class="config-step"><div class="step-num">2</div><div class="step-text">Copy <strong>Project URL</strong> dan <strong>anon public key</strong> di bawah ini</div></div>
+    <div class="config-step"><div class="step-num">3</div><div class="step-text">Pastikan sudah jalankan file <code>educampus_schema.sql</code> di SQL Editor Supabase</div></div>
+    <label class="cfg-label">Project URL</label>
+    <input class="cfg-input" id="cfgUrl" placeholder="https://xxxxxxxxxxxx.supabase.co">
+    <label class="cfg-label">Anon Public Key</label>
+    <input class="cfg-input" id="cfgKey" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+    <div class="cfg-err" id="cfgErr"></div>
+    <button class="cfg-btn" onclick="saveConfig()">Simpan & Lanjutkan →</button>
+  </div>
+</div>
+
+<!-- LOGIN / REGISTER -->
+<div id="loginScreen" style="display:none">
+  <div style="display:flex;min-height:100vh;align-items:center;justify-content:center;background:linear-gradient(135deg,#1E293B,#334155)">
+  <div class="login-card">
+    <div class="brand-row">
+      <div class="brand-ico">🎓</div>
+      <div><div class="brand-name">EduCampus</div><div class="brand-sub">SISTEM PERKULIAHAN DIGITAL</div></div>
+    </div>
+    <div class="tabs">
+      <div class="tab active" id="tabMhs" onclick="setAuthRole('mahasiswa')">🎓 Mahasiswa</div>
+      <div class="tab" id="tabDsn" onclick="setAuthRole('dosen')">👨‍🏫 Dosen</div>
+      <div class="tab" id="tabAdm" onclick="setAuthRole('admin')">🛡️ Admin</div>
+    </div>
+    <div class="err-box" id="authErr"></div>
+    <div class="ok-box" id="authOk"></div>
+    <div id="loginForm">
+      <label class="lbl">Email</label>
+      <input class="inp" type="email" id="loginEmail" placeholder="email@campus.ac.id">
+      <label class="lbl">Password</label>
+      <input class="inp" type="password" id="loginPass" placeholder="••••••••">
+      <button class="btn-primary" onclick="doLogin()">Masuk →</button>
+      <div class="auth-toggle" id="toggleFormBtn" onclick="toggleForm()">Belum punya akun? <span>Daftar di sini</span></div>
+    </div>
+    <div id="registerForm" style="display:none">
+      <div class="inp-row">
+        <div><label class="lbl">Nama Lengkap</label><input class="inp" id="regNama" placeholder="Ahmad Rizki..."></div>
+        <div><label class="lbl" id="nimLabel">NIM</label><input class="inp" id="regNimNidn" placeholder="2021010001"></div>
+      </div>
+      <label class="lbl">Email</label>
+      <input class="inp" type="email" id="regEmail" placeholder="email@campus.ac.id">
+      <div class="inp-row">
+        <div><label class="lbl">Password</label><input class="inp" type="password" id="regPass" placeholder="min. 6 karakter"></div>
+        <div id="semesterWrap"><label class="lbl">Semester</label><input class="inp" type="number" id="regSem" placeholder="5" min="1" max="14"></div>
+      </div>
+      <button class="btn-primary" onclick="doRegister()">Buat Akun →</button>
+      <div class="auth-toggle" onclick="toggleForm()">Sudah punya akun? <span>Masuk</span></div>
+    </div>
+  </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="appShell">
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-ico">🎓</div>
+      <div><div class="sb-name">EduCampus</div><div class="sb-sub">SISTEM PERKULIAHAN</div></div>
+    </div>
+    <div class="sb-user">
+      <div class="sb-av" id="sbAv">?</div>
+      <div><div class="sb-uname" id="sbName">Loading...</div><div class="sb-uid" id="sbId"></div></div>
+    </div>
+    <div class="nav-scroll" id="navMenu"></div>
+    <div class="sb-bottom">
+      <div class="nav-item" onclick="doLogout()"><span class="nav-ico">🚪</span> Keluar</div>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="page-title" id="pageTitle">Dashboard</div>
+      <div class="tb-av" id="tbAv" onclick="navigate('profil')">?</div>
+    </header>
+    <div class="content" id="mainContent"><div class="loading">Memuat...</div></div>
+  </div>
+</div>
+
+<!-- MODALS -->
+<div class="modal-bg" id="modalBg">
+  <div class="modal" id="modalBox"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── SUPABASE INIT ──────────────────────────────────────
+let sb = null;
+let currentUser = null;
+let currentProfile = null;
+
+function saveConfig(){
+  const url = document.getElementById('cfgUrl').value.trim();
+  const key = document.getElementById('cfgKey').value.trim();
+  const err = document.getElementById('cfgErr');
+  if(!url || !key){ err.textContent='Isi kedua field!'; err.style.display='block'; return; }
+  if(!url.startsWith('https://')){ err.textContent='URL harus dimulai dengan https://'; err.style.display='block'; return; }
+  localStorage.setItem('ec_url', url);
+  localStorage.setItem('ec_key', key);
+  initSupabase(url, key);
+}
+
+function initSupabase(url, key){
+  try {
+    sb = supabase.createClient(url, key);
+    document.getElementById('configScreen').style.display = 'none';
+    document.getElementById('loginScreen').style.display = 'block';
+    checkSession();
+  } catch(e) {
+    const err = document.getElementById('cfgErr');
+    err.textContent = 'Gagal terhubung: ' + e.message;
+    err.style.display = 'block';
+  }
+}
+
+// Auto-load config
+window.addEventListener('load', ()=>{
+  const url = localStorage.getItem('ec_url');
+  const key = localStorage.getItem('ec_key');
+  if(url && key){
+    document.getElementById('cfgUrl').value = url;
+    document.getElementById('cfgKey').value = key;
+    initSupabase(url, key);
+  }
+});
+
+// ── AUTH ──────────────────────────────────────────────
+let authRole = 'mahasiswa';
+let showingRegister = false;
+
+// Kredensial default Admin (sudah ditanam).
+// Akun ini harus benar-benar ada di Supabase (lihat catatan di bawah).
+// Setelah login pertama kali, admin bisa ganti password lewat menu Profil → Ganti Password.
+const DEFAULT_ADMIN_EMAIL = 'admin@educampus.ac.id';
+const DEFAULT_ADMIN_PASS  = 'Admin123!';
+
+function setAuthRole(r){
+  authRole = r;
+  clearAuthMsg();
+
+  // reset semua tab, lalu aktifkan yang dipilih
+  document.getElementById('tabMhs').classList.remove('active');
+  document.getElementById('tabDsn').classList.remove('active');
+  document.getElementById('tabAdm').classList.remove('active');
+  const tabId = r==='mahasiswa' ? 'tabMhs' : (r==='dosen' ? 'tabDsn' : 'tabAdm');
+  document.getElementById(tabId).classList.add('active');
+
+  document.getElementById('nimLabel').textContent = r==='mahasiswa'?'NIM':r==='dosen'?'NIDN':'ID';
+  document.getElementById('semesterWrap').style.display = r==='mahasiswa'?'block':'none';
+
+  if(r==='admin'){
+    // Admin: isi otomatis kredensial bawaan & sembunyikan opsi daftar
+    document.getElementById('loginEmail').value = DEFAULT_ADMIN_EMAIL;
+    document.getElementById('loginPass').value = DEFAULT_ADMIN_PASS;
+    document.getElementById('toggleFormBtn').style.display = 'none';
+    showingRegister = false;
+    document.getElementById('loginForm').style.display = 'block';
+    document.getElementById('registerForm').style.display = 'none';
+  } else {
+    // Mahasiswa / Dosen: kosongkan field & tampilkan opsi daftar lagi
+    document.getElementById('loginEmail').value = '';
+    document.getElementById('loginPass').value = '';
+    document.getElementById('toggleFormBtn').style.display = 'block';
+  }
+}
+
+function toggleForm(){
+  showingRegister = !showingRegister;
+  document.getElementById('loginForm').style.display = showingRegister?'none':'block';
+  document.getElementById('registerForm').style.display = showingRegister?'block':'none';
+  clearAuthMsg();
+}
+
+function clearAuthMsg(){
+  document.getElementById('authErr').style.display='none';
+  document.getElementById('authOk').style.display='none';
+}
+
+async function doLogin(){
+  clearAuthMsg();
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  if(!email||!pass){ showAuthErr('Isi email dan password'); return; }
+  const {data, error} = await sb.auth.signInWithPassword({email, password:pass});
+  if(error){ showAuthErr(error.message); return; }
+  await loadProfile(data.user);
+}
+
+async function doRegister(){
+  clearAuthMsg();
+  const nama = document.getElementById('regNama').value.trim();
+  const nimNidn = document.getElementById('regNimNidn').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const pass = document.getElementById('regPass').value;
+  const sem = document.getElementById('regSem').value;
+  if(!nama||!nimNidn||!email||!pass){ showAuthErr('Semua field wajib diisi'); return; }
+  const meta = { role: authRole, nama, nim_nidn: nimNidn };
+  if(authRole==='mahasiswa') meta.semester = parseInt(sem)||1;
+  const {data, error} = await sb.auth.signUp({ email, password:pass, options:{data:meta} });
+  if(error){ showAuthErr(error.message); return; }
+  showAuthOk('Akun berhasil dibuat! Silakan login.');
+  toggleForm();
+}
+
+async function checkSession(){
+  const {data:{session}} = await sb.auth.getSession();
+  if(session) await loadProfile(session.user);
+}
+
+async function loadProfile(user){
+  currentUser = user;
+  const {data, error} = await sb.from('profiles').select('*').eq('id', user.id).single();
+  if(error || !data){
+    showAuthErr('Profil tidak ditemukan. Coba logout dan login ulang.');
+    return;
+  }
+  currentProfile = data;
+  startApp();
+}
+
+async function doLogout(){
+  await sb.auth.signOut();
+  currentUser = null; currentProfile = null;
+  document.getElementById('appShell').style.display='none';
+  document.getElementById('loginScreen').style.display='block';
+}
+
+function showAuthErr(msg){ const e=document.getElementById('authErr'); e.textContent=msg; e.style.display='block'; }
+function showAuthOk(msg){ const e=document.getElementById('authOk'); e.textContent=msg; e.style.display='block'; }
+
+// ── APP ──────────────────────────────────────────────
+function startApp(){
+  const p = currentProfile;
+  const initials = p.nama.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+  document.getElementById('sbAv').textContent = initials;
+  document.getElementById('sbName').textContent = p.nama;
+  document.getElementById('sbId').textContent = (p.role==='mahasiswa'?'NIM':'NIDN')+' · '+(p.nim_nidn||'-');
+  document.getElementById('tbAv').textContent = initials;
+  buildNav();
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('appShell').style.display='flex';
+  navigate('dashboard');
+}
+
+function buildNav(){
+  const r = currentProfile.role;
+  const mhsNav=[
+    {page:'dashboard',icon:'🏠',label:'Dashboard'},
+    {page:'matkul',icon:'📚',label:'Mata Kuliah'},
+    {page:'nilai',icon:'📊',label:'Nilai Saya'},
+    {page:'jadwal',icon:'📅',label:'Jadwal'},
+    {page:'profil',icon:'👤',label:'Profil'},
+  ];
+  const dsnNav=[
+    {page:'dashboard',icon:'🏠',label:'Dashboard'},
+    {page:'matkul_dsn',icon:'📚',label:'Mata Kuliah Saya'},
+    {page:'mahasiswa_dsn',icon:'👥',label:'Data Mahasiswa'},
+    {page:'input_nilai',icon:'✏️',label:'Input Nilai'},
+    {page:'jadwal',icon:'📅',label:'Jadwal'},
+    {page:'profil',icon:'👤',label:'Profil'},
+  ];
+  const adminNav=[
+    {page:'dashboard',icon:'🏠',label:'Dashboard'},
+    {page:'kelola_mhs',icon:'👥',label:'Kelola Mahasiswa'},
+    {page:'kelola_dsn',icon:'👨‍🏫',label:'Kelola Dosen'},
+    {page:'kelola_mk',icon:'📚',label:'Kelola Mata Kuliah'},
+    {page:'profil',icon:'👤',label:'Profil'},
+  ];
+  const nav = r==='admin'?adminNav:r==='dosen'?dsnNav:mhsNav;
+  document.getElementById('navMenu').innerHTML =
+    '<div class="nav-sec">Menu</div>'+
+    nav.map(n=>`<div class="nav-item" id="nav-${n.page}" onclick="navigate('${n.page}')">
+      <span class="nav-ico">${n.icon}</span>${n.label}
+    </div>`).join('');
+}
+
+function navigate(page){
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('nav-'+page)?.classList.add('active');
+  const titles={dashboard:'Dashboard',matkul:'Mata Kuliah',nilai:'Nilai Saya',jadwal:'Jadwal Kuliah',profil:'Profil Saya',
+    matkul_dsn:'Mata Kuliah Saya',mahasiswa_dsn:'Data Mahasiswa',input_nilai:'Input Nilai',
+    kelola_mhs:'Kelola Mahasiswa',kelola_dsn:'Kelola Dosen',kelola_mk:'Kelola Mata Kuliah'};
+  document.getElementById('pageTitle').textContent = titles[page]||page;
+  document.getElementById('mainContent').innerHTML = '<div class="loading">⏳ Memuat data...</div>';
+  const pages = {
+    dashboard: renderDashboard,
+    matkul: renderMatkul,
+    nilai: renderNilai,
+    jadwal: renderJadwal,
+    profil: renderProfil,
+    matkul_dsn: renderMatkulDsn,
+    mahasiswa_dsn: renderMahasiswaDsn,
+    input_nilai: renderInputNilai,
+    kelola_mhs: renderKelolaUsers('mahasiswa'),
+    kelola_dsn: renderKelolaUsers('dosen'),
+    kelola_mk: renderKelolaMK,
+  };
+  if(pages[page]) pages[page]();
+  else document.getElementById('mainContent').innerHTML = '<div class="empty-state"><div class="emo">🚧</div><h3>Segera Hadir</h3></div>';
+}
+
+// ── RENDER DASHBOARD ──────────────────────────────────
+async function renderDashboard(){
+  const r = currentProfile.role;
+  if(r==='mahasiswa') await renderDashboardMhs();
+  else if(r==='dosen') await renderDashboardDsn();
+  else await renderDashboardAdmin();
+}
+
+async function renderDashboardMhs(){
+  const {data:enrollments} = await sb.from('enrollments')
+    .select('*, mata_kuliah(*)')
+    .eq('mahasiswa_id', currentUser.id);
+  const mkList = enrollments||[];
+  const totalSks = mkList.reduce((s,e)=>s+(e.mata_kuliah?.sks||0),0);
+  const valued = mkList.filter(e=>e.nilai_angka!==null);
+  let ipk = '-';
+  if(valued.length){
+    const mutu = valued.reduce((s,e)=>s+getNilaiMutu(e.nilai_angka)*(e.mata_kuliah?.sks||0),0);
+    const sks = valued.reduce((s,e)=>s+(e.mata_kuliah?.sks||0),0);
+    ipk = sks>0?(mutu/sks).toFixed(2):'-';
+  }
+  document.getElementById('mainContent').innerHTML = `
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-ico" style="background:#EEF2FF">📚</div><div class="stat-lbl">Mata Kuliah</div><div class="stat-val">${mkList.length}</div><div class="stat-sub">${totalSks} SKS total</div></div>
+    <div class="stat-card"><div class="stat-ico" style="background:#ECFDF5">⭐</div><div class="stat-lbl">IPK</div><div class="stat-val">${ipk}</div><div class="stat-sub">Semester ini</div></div>
+    <div class="stat-card"><div class="stat-ico" style="background:#EFF6FF">✅</div><div class="stat-lbl">Nilai Masuk</div><div class="stat-val">${valued.length}/${mkList.length}</div><div class="stat-sub">Mata kuliah</div></div>
+    <div class="stat-card"><div class="stat-ico" style="background:#FFFBEB">👤</div><div class="stat-lbl">Semester</div><div class="stat-val">${currentProfile.semester||'-'}</div><div class="stat-sub">${currentProfile.prodi||''}</div></div>
+  </div>
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Mata Kuliah yang Diambil</div></div>
+    ${mkList.length===0?'<div class="empty-state"><div class="emo">📭</div><h3>Belum ada mata kuliah</h3><p>Hubungi dosen atau admin untuk enrollment</p></div>':
+    mkList.map(e=>{
+      const mk = e.mata_kuliah;
+      return `<div class="list-item">
+        <div class="item-ico" style="background:${mk?.color||'#EEF2FF'}22;font-size:20px">${mk?.emoji||'📚'}</div>
+        <div class="item-info"><div class="item-name">${mk?.nama||'-'}</div><div class="item-meta">${mk?.jadwal||''} · ${mk?.sks||0} SKS</div></div>
+        ${e.nilai_angka!==null?`<div class="grade-pill" style="background:var(--green-bg);color:var(--green)">${getNilaiHuruf(e.nilai_angka)}</div>`:'<div class="badge" style="background:var(--amber-bg);color:var(--amber)">Menunggu nilai</div>'}
+      </div>`;}).join('')}
+  </div>`;
+}
+
+async function renderDashboardDsn(){
+  const {data:mkList} = await sb.from('mata_kuliah').select('*, enrollments(count)').eq('dosen_id', currentUser.id);
+  const mks = mkList||[];
+  const totalMhs = mks.reduce((s,m)=>s+(m.enrollments?.[0]?.count||0),0);
+  document.getElementById('mainContent').innerHTML = `
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-ico" style="background:#EEF2FF">📚</div><div class="stat-lbl">Mata Kuliah</div><div class="stat-val">${mks.length}</div><div class="stat-sub">Semester ini</div></div>
+    <div class="stat-card"><div class="stat-ico" style="background:#ECFDF5">👥</div><div class="stat-lbl">Total Mahasiswa</div><div class="stat-val">${totalMhs}</div><div class="stat-sub">Semua kelas</div></div>
+    <div class="stat-card"><div class="stat-ico" style="background:#FFFBEB">✏️</div><div class="stat-lbl">Kelas Aktif</div><div class="stat-val">${mks.length}</div><div class="stat-sub">Perlu dikelola</div></div>
+    <div class="stat-card"><div class="stat-ico" style="background:#EFF6FF">📅</div><div class="stat-lbl">Prodi</div><div class="stat-val" style="font-size:14px">${currentProfile.prodi||'-'}</div></div>
+  </div>
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Mata Kuliah Saya</div><button class="btn-sm-pri" onclick="navigate('matkul_dsn')">Kelola →</button></div>
+    ${mks.length===0?'<div class="empty-state"><div class="emo">📭</div><h3>Belum ada mata kuliah</h3><p>Hubungi admin untuk menambahkan mata kuliah</p></div>':
+    mks.map(m=>`<div class="list-item">
+      <div class="item-ico" style="font-size:20px">${m.emoji||'📚'}</div>
+      <div class="item-info"><div class="item-name">${m.nama}</div><div class="item-meta">${m.kode} · ${m.sks} SKS · ${m.jadwal||'-'}</div></div>
+      <div class="badge" style="background:var(--indigo-l);color:var(--indigo)">${m.enrollments?.[0]?.count||0} mhs</div>
+    </div>`).join('')}
+  </div>`;
+}
+
+async function renderDashboardAdmin(){
+  const {count:totalMhs} = await sb.from('profiles').select('*',{count:'exact',head:true}).eq('role','mahasiswa');
+  const {count:totalDsn} = await sb.from('profiles').select('*',{count:'exact',head:true}).eq('role','dosen');
+  const {count:totalMK} = await sb.from('mata_kuliah').select('*',{count:'exact',head:true});
+  document.getElementById('mainContent').innerHTML = `
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-ico" style="background:#EEF2FF">🎓</div><div class="stat-lbl">Mahasiswa</div><div class="stat-val">${totalMhs||0}</div></div>
+    <div class="stat-card"><div class="stat-ico" style="background:#ECFDF5">👨‍🏫</div><div class="stat-lbl">Dosen</div><div class="stat-val">${totalDsn||0}</div></div>
+    <div class="stat-card"><div class="stat-ico" style="background:#FFFBEB">📚</div><div class="stat-lbl">Mata Kuliah</div><div class="stat-val">${totalMK||0}</div></div>
+    <div class="stat-card"><div class="stat-ico" style="background:#EFF6FF">🏫</div><div class="stat-lbl">Sistem</div><div class="stat-val" style="font-size:14px;color:var(--green)">Aktif</div></div>
+  </div>
+  <div class="row2">
+    <div class="card"><div class="card-hd"><div class="card-title">Kelola Pengguna</div></div>
+      <div class="list-item" onclick="navigate('kelola_mhs')"><div class="item-ico" style="background:#EEF2FF">🎓</div><div class="item-info"><div class="item-name">Data Mahasiswa</div><div class="item-meta">Tambah, edit, hapus akun mahasiswa</div></div><span>→</span></div>
+      <div class="list-item" onclick="navigate('kelola_dsn')"><div class="item-ico" style="background:#ECFDF5">👨‍🏫</div><div class="item-info"><div class="item-name">Data Dosen</div><div class="item-meta">Tambah, edit, hapus akun dosen</div></div><span>→</span></div>
+    </div>
+    <div class="card"><div class="card-hd"><div class="card-title">Kelola Akademik</div></div>
+      <div class="list-item" onclick="navigate('kelola_mk')"><div class="item-ico" style="background:#FFFBEB">📚</div><div class="item-info"><div class="item-name">Mata Kuliah</div><div class="item-meta">Tambah, edit, assign dosen</div></div><span>→</span></div>
+    </div>
+  </div>`;
+}
+
+// ── MATA KULIAH (MAHASISWA) ──────────────────────────
+async function renderMatkul(){
+  const {data} = await sb.from('enrollments').select('*, mata_kuliah(*)').eq('mahasiswa_id', currentUser.id);
+  const list = data||[];
+  document.getElementById('mainContent').innerHTML = list.length===0
+    ? '<div class="empty-state"><div class="emo">📭</div><h3>Belum ada mata kuliah</h3><p>Kamu belum terdaftar di mata kuliah apapun</p></div>'
+    : `<div class="section-head">${list.length} mata kuliah terdaftar</div>
+    <div class="courses-grid">${list.map(e=>{
+      const mk=e.mata_kuliah;
+      const color=mk?.color||'#4338CA';
+      return `<div class="course-card">
+        <div class="course-banner" style="background:${color}"></div>
+        <div class="course-body">
+          <div style="font-size:24px;margin-bottom:8px">${mk?.emoji||'📚'}</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px">${mk?.nama||'-'}</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px">${mk?.kode||''} · ${mk?.sks||0} SKS</div>
+          <div style="font-size:11px;color:var(--muted)">${mk?.jadwal||''} · ${mk?.ruang||''}</div>
+        </div>
+      </div>`;}).join('')}</div>`;
+}
+
+// ── NILAI (MAHASISWA) ─────────────────────────────────
+async function renderNilai(){
+  const {data} = await sb.from('enrollments').select('*, mata_kuliah(*)').eq('mahasiswa_id', currentUser.id);
+  const list = data||[];
+  const valued = list.filter(e=>e.nilai_angka!==null);
+  let ipk='-';
+  if(valued.length){
+    const m=valued.reduce((s,e)=>s+getNilaiMutu(e.nilai_angka)*(e.mata_kuliah?.sks||0),0);
+    const k=valued.reduce((s,e)=>s+(e.mata_kuliah?.sks||0),0);
+    ipk=k>0?(m/k).toFixed(2):'-';
+  }
+  document.getElementById('mainContent').innerHTML = `
+  <div class="stats-grid" style="margin-bottom:20px">
+    <div class="stat-card" style="grid-column:span 2"><div class="stat-lbl">IPK Semester Ini</div>
+      <div style="display:flex;align-items:baseline;gap:10px"><div class="stat-val" style="font-size:34px">${ipk}</div></div>
+      <div class="stat-sub">${valued.length} dari ${list.length} nilai sudah masuk</div>
+    </div>
+    <div class="stat-card"><div class="stat-lbl">Total SKS</div><div class="stat-val">${list.reduce((s,e)=>s+(e.mata_kuliah?.sks||0),0)}</div></div>
+    <div class="stat-card"><div class="stat-lbl">Nilai Tertinggi</div><div class="stat-val">${valued.length?Math.max(...valued.map(e=>e.nilai_angka)):'-'}</div></div>
+  </div>
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Rekap Nilai</div></div>
+    <table class="tbl">
+      <thead><tr><th>Mata Kuliah</th><th>SKS</th><th>Nilai</th><th>Huruf</th><th>Mutu</th></tr></thead>
+      <tbody>${list.map(e=>{
+        const mk=e.mata_kuliah; const n=e.nilai_angka;
+        const huruf=n!==null?getNilaiHuruf(n):'-';
+        const mutu=n!==null?getNilaiMutu(n):'-';
+        const c=n!==null?(n>=80?'var(--green)':n>=70?'var(--blue)':'var(--amber)'):'var(--muted)';
+        return `<tr><td style="font-weight:500">${mk?.nama||'-'}</td><td>${mk?.sks||0}</td>
+          <td style="font-weight:600;color:${c}">${n!==null?n:'Menunggu'}</td>
+          <td>${n!==null?`<div class="grade-pill" style="background:${n>=80?'var(--green-bg)':n>=70?'var(--blue-bg)':'var(--amber-bg)'};color:${c}">${huruf}</div>`:'-'}</td>
+          <td style="color:${c}">${mutu!=='-'?mutu.toFixed(1):'-'}</td></tr>`;}).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+// ── JADWAL ────────────────────────────────────────────
+async function renderJadwal(){
+  const isD = currentProfile.role==='dosen';
+  let query = sb.from('mata_kuliah').select('*');
+  if(isD) query = query.eq('dosen_id', currentUser.id);
+  else {
+    const {data:en} = await sb.from('enrollments').select('matkul_id').eq('mahasiswa_id', currentUser.id);
+    const ids = (en||[]).map(e=>e.matkul_id);
+    if(ids.length===0){ document.getElementById('mainContent').innerHTML='<div class="empty-state"><div class="emo">📅</div><h3>Tidak ada jadwal</h3></div>'; return; }
+    query = query.in('id', ids);
+  }
+  const {data} = await query;
+  const list = data||[];
+  const days = ['Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+  const grouped = {};
+  days.forEach(d=>grouped[d]=[]);
+  list.forEach(mk=>{
+    const hari = (mk.jadwal||'').split(' ')[0];
+    if(grouped[hari]) grouped[hari].push(mk);
+  });
+  const html = days.filter(d=>grouped[d].length>0).map(d=>`
+    <div class="card" style="margin-bottom:12px">
+      <div style="padding:9px 16px;background:var(--bg);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">${d}</div>
+      ${grouped[d].map(mk=>`<div class="sched-item">
+        <div style="font-size:11px;color:var(--muted);width:70px;flex-shrink:0;padding-top:2px">${(mk.jadwal||'').split(' ').slice(1).join(' ')}</div>
+        <div class="sched-bar" style="background:${mk.color||'#4338CA'}"></div>
+        <div class="sched-info"><div style="font-size:13px;font-weight:500">${mk.emoji||'📚'} ${mk.nama}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">Ruang ${mk.ruang||'-'} · ${mk.sks} SKS</div></div>
+        <div class="badge" style="background:var(--indigo-l);color:var(--indigo)">${mk.kode}</div>
+      </div>`).join('')}
+    </div>`).join('');
+  document.getElementById('mainContent').innerHTML = html||'<div class="empty-state"><div class="emo">📅</div><h3>Tidak ada jadwal</h3></div>';
+}
+
+// ── PROFIL ────────────────────────────────────────────
+async function renderProfil(){
+  const p = currentProfile;
+  const initials = p.nama.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+  document.getElementById('mainContent').innerHTML = `
+  <div class="card">
+    <div class="profile-header">
+      <div class="profile-av">${initials}</div>
+      <div>
+        <div style="font-size:17px;font-weight:700">${p.nama}</div>
+        <div class="badge" style="background:var(--indigo-l);color:var(--indigo);margin-top:6px">${p.role==='mahasiswa'?'Mahasiswa Aktif':p.role==='dosen'?'Dosen Tetap':'Administrator'}</div>
+      </div>
+    </div>
+    <div class="profile-sec">
+      <div class="profile-sec-title">Informasi Akademik</div>
+      <div class="profile-field"><div class="pf-lbl">${p.role==='mahasiswa'?'NIM':'NIDN'}</div><div class="pf-val">${p.nim_nidn||'-'}</div></div>
+      <div class="profile-field"><div class="pf-lbl">Program Studi</div><div class="pf-val">${p.prodi||'-'}</div></div>
+      <div class="profile-field"><div class="pf-lbl">Fakultas</div><div class="pf-val">${p.fakultas||'-'}</div></div>
+      ${p.role==='mahasiswa'?`<div class="profile-field"><div class="pf-lbl">Semester</div><div class="pf-val">${p.semester||'-'}</div></div>`:''}
+      <div class="profile-field"><div class="pf-lbl">Status</div><div class="pf-val" style="color:var(--green)">✓ Aktif</div></div>
+    </div>
+    <div class="profile-sec">
+      <div class="profile-sec-title">Kontak</div>
+      <div class="profile-field"><div class="pf-lbl">Email</div><div class="pf-val" style="color:var(--indigo)">${currentUser.email}</div></div>
+    </div>
+    <div class="profile-sec" style="border:none">
+      <button class="btn-sec" onclick="showResetPassword()">🔑 Ganti Password</button>
+    </div>
+  </div>`;
+}
+
+async function showResetPassword(){
+  await sb.auth.resetPasswordForEmail(currentUser.email);
+  showToast('📧 Link reset password dikirim ke email kamu!');
+}
+
+// ── DOSEN: MATA KULIAH ────────────────────────────────
+async function renderMatkulDsn(){
+  const {data} = await sb.from('mata_kuliah').select('*, enrollments(count)').eq('dosen_id', currentUser.id);
+  const list = data||[];
+  document.getElementById('mainContent').innerHTML = `
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Mata Kuliah Saya (${list.length})</div></div>
+    ${list.length===0?'<div class="empty-state"><div class="emo">📭</div><h3>Belum ada mata kuliah</h3><p>Minta admin untuk menambahkan mata kuliah</p></div>':
+    `<table class="tbl"><thead><tr><th>Kode</th><th>Nama</th><th>SKS</th><th>Jadwal</th><th>Ruang</th><th>Mahasiswa</th></tr></thead>
+    <tbody>${list.map(m=>`<tr>
+      <td><div class="badge" style="background:var(--indigo-l);color:var(--indigo)">${m.kode}</div></td>
+      <td style="font-weight:500">${m.emoji||'📚'} ${m.nama}</td>
+      <td>${m.sks}</td><td>${m.jadwal||'-'}</td><td>${m.ruang||'-'}</td>
+      <td><div class="badge" style="background:var(--green-bg);color:var(--green)">${m.enrollments?.[0]?.count||0} mhs</div></td>
+    </tr>`).join('')}</tbody></table>`}
+  </div>`;
+}
+
+// ── DOSEN: DATA MAHASISWA ─────────────────────────────
+async function renderMahasiswaDsn(){
+  const {data:mks} = await sb.from('mata_kuliah').select('id,nama,kode').eq('dosen_id', currentUser.id);
+  if(!mks||mks.length===0){
+    document.getElementById('mainContent').innerHTML='<div class="empty-state"><div class="emo">📭</div><h3>Tidak ada mata kuliah</h3></div>'; return;
+  }
+  const mkIds = mks.map(m=>m.id);
+  const {data:enrolls} = await sb.from('enrollments').select('*, profiles(*), mata_kuliah(nama,kode)').in('matkul_id', mkIds);
+  const list = enrolls||[];
+  document.getElementById('mainContent').innerHTML = `
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Semua Mahasiswa di Kelas Saya (${list.length})</div></div>
+    <table class="tbl">
+      <thead><tr><th>Nama</th><th>NIM</th><th>Mata Kuliah</th><th>Nilai</th></tr></thead>
+      <tbody>${list.map(e=>{
+        const p=e.profiles; const n=e.nilai_angka;
+        const c=n!==null?(n>=80?'var(--green)':n>=70?'var(--blue)':'var(--amber)'):'var(--muted)';
+        return `<tr>
+          <td><div style="display:flex;align-items:center;gap:8px"><div class="av-sm">${(p?.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('')}</div>${p?.nama||'-'}</div></td>
+          <td style="color:var(--muted)">${p?.nim_nidn||'-'}</td>
+          <td>${e.mata_kuliah?.nama||'-'}</td>
+          <td style="color:${c};font-weight:600">${n!==null?n:'Belum diinput'}</td>
+        </tr>`;}).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+// ── DOSEN: INPUT NILAI ────────────────────────────────
+async function renderInputNilai(){
+  const {data:mks} = await sb.from('mata_kuliah').select('id,nama,kode').eq('dosen_id', currentUser.id);
+  if(!mks||mks.length===0){
+    document.getElementById('mainContent').innerHTML='<div class="empty-state"><div class="emo">✏️</div><h3>Tidak ada mata kuliah</h3></div>'; return;
+  }
+  let selectedMk = mks[0].id;
+  const loadEnrollments = async (mkId)=>{
+    const {data} = await sb.from('enrollments').select('*, profiles(*)').eq('matkul_id', mkId);
+    return data||[];
+  };
+  const render = async ()=>{
+    const enrolls = await loadEnrollments(selectedMk);
+    const mkName = mks.find(m=>m.id===selectedMk)?.nama||'';
+    document.getElementById('mainContent').innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-hd"><div class="card-title">Pilih Mata Kuliah</div></div>
+      <div style="padding:14px 16px">
+        <select class="form-select" onchange="selectedMk=this.value;renderInputNilai()" style="max-width:360px">
+          ${mks.map(m=>`<option value="${m.id}" ${m.id===selectedMk?'selected':''}>${m.kode} · ${m.nama}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-title">Input Nilai · ${mkName} (${enrolls.length} mahasiswa)</div>
+        <button class="btn-sm-pri" onclick="saveAllNilai()">💾 Simpan Semua</button>
+      </div>
+      <table class="tbl">
+        <thead><tr><th>Nama</th><th>NIM</th><th>Nilai (0–100)</th><th>Huruf</th></tr></thead>
+        <tbody>${enrolls.map(e=>{
+          const p=e.profiles; const n=e.nilai_angka;
+          return `<tr>
+            <td><div style="display:flex;align-items:center;gap:8px"><div class="av-sm">${(p?.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('')}</div>${p?.nama||'-'}</div></td>
+            <td style="color:var(--muted)">${p?.nim_nidn||'-'}</td>
+            <td><input class="input-grade" type="number" min="0" max="100" value="${n!==null?n:''}" placeholder="—"
+              data-eid="${e.id}"
+              oninput="updateHurufPreview('huruf_${e.id}',this.value)"
+              onchange="pendingNilai['${e.id}']=this.value===''?null:parseInt(this.value)"></td>
+            <td id="huruf_${e.id}">${n!==null?renderGradePill(n):'-'}</td>
+          </tr>`;}).join('')}
+        </tbody>
+      </table>
+    </div>`;
+    window.pendingNilai = {};
+    window.currentEnrolls = enrolls;
+  };
+  window.saveAllNilai = async()=>{
+    const updates = Object.entries(window.pendingNilai);
+    if(updates.length===0){ showToast('Tidak ada perubahan'); return; }
+    for(const [eid, val] of updates){
+      await sb.from('enrollments').update({nilai_angka:val}).eq('id', eid);
+    }
+    showToast('✅ Nilai berhasil disimpan!');
+    render();
+  };
+  window.selectedMk = selectedMk;
+  render();
+}
+
+function updateHurufPreview(elId, val){
+  const el = document.getElementById(elId);
+  if(el) el.innerHTML = val===''?'-':renderGradePill(parseInt(val));
+}
+
+function renderGradePill(n){
+  const h=getNilaiHuruf(n);
+  const c=n>=80?'var(--green)':n>=70?'var(--blue)':'var(--amber)';
+  const bg=n>=80?'var(--green-bg)':n>=70?'var(--blue-bg)':'var(--amber-bg)';
+  return `<div class="grade-pill" style="background:${bg};color:${c}">${h}</div>`;
+}
+
+// ── ADMIN: KELOLA USERS ───────────────────────────────
+function renderKelolaUsers(role){
+  return async ()=>{
+    const {data} = await sb.from('profiles').select('*').eq('role', role).order('nama');
+    const list = data||[];
+    const label = role==='mahasiswa'?'Mahasiswa':'Dosen';
+    document.getElementById('mainContent').innerHTML = `
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-title">Daftar ${label} (${list.length})</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-sm-pri" onclick="showAddUserModal('${role}')">+ Tambah ${label}</button>
+        </div>
+      </div>
+      <table class="tbl">
+        <thead><tr><th>Nama</th><th>${role==='mahasiswa'?'NIM':'NIDN'}</th><th>Prodi</th>${role==='mahasiswa'?'<th>Semester</th>':''}<th>Aksi</th></tr></thead>
+        <tbody>${list.length===0?`<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">Belum ada data ${label.toLowerCase()}</td></tr>`:
+        list.map(p=>`<tr>
+          <td><div style="display:flex;align-items:center;gap:8px"><div class="av-sm">${p.nama.split(' ').slice(0,2).map(w=>w[0]).join('')}</div>${p.nama}</div></td>
+          <td style="color:var(--muted)">${p.nim_nidn||'-'}</td>
+          <td>${p.prodi||'-'}</td>
+          ${role==='mahasiswa'?`<td>${p.semester||'-'}</td>`:''}
+          <td><button class="btn-sm" onclick="showEditUserModal(${JSON.stringify(p).replace(/'/g,'&#39;')})">Edit</button></td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  };
+}
+
+function showAddUserModal(role){
+  const label = role==='mahasiswa'?'Mahasiswa':'Dosen';
+  openModal(`Tambah ${label}`, `
+    <div class="form-group"><label class="form-label">Nama Lengkap</label><input class="form-input" id="m_nama" placeholder="Ahmad Rizki..."></div>
+    <div class="form-group"><label class="form-label">${role==='mahasiswa'?'NIM':'NIDN'}</label><input class="form-input" id="m_nim" placeholder="${role==='mahasiswa'?'2021010001':'196507231990032001'}"></div>
+    <div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" id="m_email" placeholder="nama@campus.ac.id"></div>
+    <div class="form-group"><label class="form-label">Password Awal</label><input class="form-input" type="password" id="m_pass" placeholder="min. 6 karakter"></div>
+    ${role==='mahasiswa'?'<div class="form-group"><label class="form-label">Semester</label><input class="form-input" type="number" id="m_sem" placeholder="1" min="1" max="14"></div>':''}
+    <div class="form-group"><label class="form-label">Program Studi</label><input class="form-input" id="m_prodi" value="Teknik Informatika"></div>
+    <div class="btn-group">
+      <button class="btn-sec" onclick="closeModal()">Batal</button>
+      <button class="btn-pri" onclick="addUser('${role}')">Tambah</button>
+    </div>`);
+}
+
+async function addUser(role){
+  const nama=document.getElementById('m_nama')?.value.trim();
+  const nim=document.getElementById('m_nim')?.value.trim();
+  const email=document.getElementById('m_email')?.value.trim();
+  const pass=document.getElementById('m_pass')?.value;
+  const sem=document.getElementById('m_sem')?.value;
+  const prodi=document.getElementById('m_prodi')?.value.trim();
+  if(!nama||!nim||!email||!pass){ showToast('❌ Semua field wajib diisi'); return; }
+  const meta={role,nama,nim_nidn:nim};
+  if(role==='mahasiswa'&&sem) meta.semester=parseInt(sem);
+  const {data,error} = await sb.auth.signUp({email,password:pass,options:{data:meta}});
+  if(error){ showToast('❌ '+error.message); return; }
+  if(prodi){
+    await sb.from('profiles').update({prodi,fakultas:'Ilmu Komputer'}).eq('id',data.user.id);
+  }
+  closeModal();
+  showToast('✅ Akun berhasil dibuat!');
+  navigate(role==='mahasiswa'?'kelola_mhs':'kelola_dsn');
+}
+
+function showEditUserModal(p){
+  openModal('Edit Profil', `
+    <div class="form-group"><label class="form-label">Nama</label><input class="form-input" id="e_nama" value="${p.nama}"></div>
+    <div class="form-group"><label class="form-label">NIM / NIDN</label><input class="form-input" id="e_nim" value="${p.nim_nidn||''}"></div>
+    <div class="form-group"><label class="form-label">Program Studi</label><input class="form-input" id="e_prodi" value="${p.prodi||''}"></div>
+    ${p.role==='mahasiswa'?`<div class="form-group"><label class="form-label">Semester</label><input class="form-input" type="number" id="e_sem" value="${p.semester||''}"></div>`:''}
+    <div class="btn-group">
+      <button class="btn-sec" onclick="closeModal()">Batal</button>
+      <button class="btn-pri" onclick="editUser('${p.id}','${p.role}')">Simpan</button>
+    </div>`);
+}
+
+async function editUser(id, role){
+  const updates={
+    nama:document.getElementById('e_nama').value.trim(),
+    nim_nidn:document.getElementById('e_nim').value.trim(),
+    prodi:document.getElementById('e_prodi').value.trim(),
+  };
+  if(role==='mahasiswa'){
+    const sem=document.getElementById('e_sem')?.value;
+    if(sem) updates.semester=parseInt(sem);
+  }
+  const {error}=await sb.from('profiles').update(updates).eq('id',id);
+  if(error){ showToast('❌ '+error.message); return; }
+  closeModal();
+  showToast('✅ Profil diperbarui!');
+  navigate(role==='mahasiswa'?'kelola_mhs':'kelola_dsn');
+}
+
+// ── ADMIN: KELOLA MATA KULIAH ─────────────────────────
+async function renderKelolaMK(){
+  const {data:mks} = await sb.from('mata_kuliah').select('*, profiles(nama)').order('kode');
+  const {data:dosens} = await sb.from('profiles').select('id,nama').eq('role','dosen').order('nama');
+  const list = mks||[];
+  document.getElementById('mainContent').innerHTML = `
+  <div class="card">
+    <div class="card-hd">
+      <div class="card-title">Daftar Mata Kuliah (${list.length})</div>
+      <button class="btn-sm-pri" onclick="showAddMKModal()">+ Tambah Mata Kuliah</button>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Kode</th><th>Nama</th><th>SKS</th><th>Dosen</th><th>Jadwal</th><th>Aksi</th></tr></thead>
+      <tbody>${list.length===0?'<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">Belum ada mata kuliah</td></tr>':
+      list.map(m=>`<tr>
+        <td><div class="badge" style="background:var(--indigo-l);color:var(--indigo)">${m.kode}</div></td>
+        <td style="font-weight:500">${m.emoji||'📚'} ${m.nama}</td>
+        <td>${m.sks}</td>
+        <td>${m.profiles?.nama||'Belum diassign'}</td>
+        <td style="color:var(--muted)">${m.jadwal||'-'}</td>
+        <td style="display:flex;gap:6px">
+          <button class="btn-sm" onclick="showEditMKModal(${JSON.stringify(m).replace(/'/g,"&#39;").replace(/"/g,'&quot;')})">Edit</button>
+          <button class="btn-sm-red" onclick="showEnrollModal('${m.id}','${m.nama.replace(/'/g,"&#39;")}')">+ Mhs</button>
+        </td>
+      </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+  window._dosens = dosens||[];
+}
+
+function showAddMKModal(){
+  const dosens = window._dosens||[];
+  openModal('Tambah Mata Kuliah', `
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Kode MK</label><input class="form-input" id="mk_kode" placeholder="TI501"></div>
+      <div class="form-group"><label class="form-label">SKS</label><input class="form-input" type="number" id="mk_sks" placeholder="3" min="1" max="6"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Nama Mata Kuliah</label><input class="form-input" id="mk_nama" placeholder="Pengantar Statistika"></div>
+    <div class="form-group"><label class="form-label">Dosen Pengampu</label>
+      <select class="form-select" id="mk_dosen">
+        <option value="">-- Pilih Dosen --</option>
+        ${dosens.map(d=>`<option value="${d.id}">${d.nama}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Jadwal</label><input class="form-input" id="mk_jadwal" placeholder="Senin 08.00–09.40"></div>
+      <div class="form-group"><label class="form-label">Ruang</label><input class="form-input" id="mk_ruang" placeholder="B201"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Emoji</label><input class="form-input" id="mk_emoji" placeholder="📚" maxlength="2"></div>
+      <div class="form-group"><label class="form-label">Warna</label><input class="form-input" type="color" id="mk_color" value="#4338CA"></div>
+    </div>
+    <div class="btn-group">
+      <button class="btn-sec" onclick="closeModal()">Batal</button>
+      <button class="btn-pri" onclick="addMK()">Tambah</button>
+    </div>`);
+}
+
+async function addMK(){
+  const kode=document.getElementById('mk_kode').value.trim();
+  const nama=document.getElementById('mk_nama').value.trim();
+  const sks=parseInt(document.getElementById('mk_sks').value)||0;
+  const dosen_id=document.getElementById('mk_dosen').value||null;
+  const jadwal=document.getElementById('mk_jadwal').value.trim();
+  const ruang=document.getElementById('mk_ruang').value.trim();
+  const emoji=document.getElementById('mk_emoji').value.trim()||'📚';
+  const color=document.getElementById('mk_color').value;
+  if(!kode||!nama||!sks){ showToast('❌ Kode, nama, dan SKS wajib diisi'); return; }
+  const {error}=await sb.from('mata_kuliah').insert({kode,nama,sks,dosen_id,jadwal,ruang,emoji,color});
+  if(error){ showToast('❌ '+error.message); return; }
+  closeModal();
+  showToast('✅ Mata kuliah berhasil ditambahkan!');
+  renderKelolaMK();
+}
+
+function showEditMKModal(m){
+  const dosens = window._dosens||[];
+  openModal('Edit Mata Kuliah', `
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Kode MK</label><input class="form-input" id="emk_kode" value="${m.kode}"></div>
+      <div class="form-group"><label class="form-label">SKS</label><input class="form-input" type="number" id="emk_sks" value="${m.sks}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Nama</label><input class="form-input" id="emk_nama" value="${m.nama}"></div>
+    <div class="form-group"><label class="form-label">Dosen Pengampu</label>
+      <select class="form-select" id="emk_dosen">
+        <option value="">-- Pilih Dosen --</option>
+        ${dosens.map(d=>`<option value="${d.id}" ${d.id===m.dosen_id?'selected':''}>${d.nama}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Jadwal</label><input class="form-input" id="emk_jadwal" value="${m.jadwal||''}"></div>
+      <div class="form-group"><label class="form-label">Ruang</label><input class="form-input" id="emk_ruang" value="${m.ruang||''}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Emoji</label><input class="form-input" id="emk_emoji" value="${m.emoji||'📚'}"></div>
+      <div class="form-group"><label class="form-label">Warna</label><input class="form-input" type="color" id="emk_color" value="${m.color||'#4338CA'}"></div>
+    </div>
+    <div class="btn-group">
+      <button class="btn-sec" onclick="closeModal()">Batal</button>
+      <button class="btn-danger" onclick="deleteMK('${m.id}')">Hapus</button>
+      <button class="btn-pri" onclick="editMK('${m.id}')">Simpan</button>
+    </div>`);
+}
+
+async function editMK(id){
+  const updates={
+    kode:document.getElementById('emk_kode').value.trim(),
+    nama:document.getElementById('emk_nama').value.trim(),
+    sks:parseInt(document.getElementById('emk_sks').value)||0,
+    dosen_id:document.getElementById('emk_dosen').value||null,
+    jadwal:document.getElementById('emk_jadwal').value.trim(),
+    ruang:document.getElementById('emk_ruang').value.trim(),
+    emoji:document.getElementById('emk_emoji').value.trim(),
+    color:document.getElementById('emk_color').value,
+  };
+  const {error}=await sb.from('mata_kuliah').update(updates).eq('id',id);
+  if(error){ showToast('❌ '+error.message); return; }
+  closeModal();
+  showToast('✅ Mata kuliah diperbarui!');
+  renderKelolaMK();
+}
+
+async function deleteMK(id){
+  if(!confirm('Hapus mata kuliah ini? Semua data enrollment akan ikut terhapus.')) return;
+  await sb.from('mata_kuliah').delete().eq('id',id);
+  closeModal();
+  showToast('🗑️ Mata kuliah dihapus');
+  renderKelolaMK();
+}
+
+function showEnrollModal(mkId, mkNama){
+  openModal(`Daftarkan Mahasiswa · ${mkNama}`, `
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">Masukkan NIM atau email mahasiswa yang akan didaftarkan ke mata kuliah ini.</p>
+    <div class="form-group"><label class="form-label">NIM / Email Mahasiswa</label>
+      <input class="form-input" id="enroll_q" placeholder="2021010001 atau email@campus.ac.id">
+    </div>
+    <div id="enroll_result" style="margin-top:12px"></div>
+    <div class="btn-group">
+      <button class="btn-sec" onclick="closeModal()">Batal</button>
+      <button class="btn-pri" onclick="searchAndEnroll('${mkId}')">Cari & Daftarkan</button>
+    </div>`);
+}
+
+async function searchAndEnroll(mkId){
+  const q = document.getElementById('enroll_q').value.trim();
+  if(!q){ showToast('Isi NIM atau email'); return; }
+  const {data:profiles} = await sb.from('profiles')
+    .select('*').eq('role','mahasiswa')
+    .or(`nim_nidn.eq.${q},id.eq.${q}`);
+  let found = profiles?.[0];
+  if(!found){
+    const {data:users} = await sb.from('profiles').select('*, auth_email:id').eq('role','mahasiswa');
+    // fallback: search by email via auth - just show not found
+    document.getElementById('enroll_result').innerHTML = '<div style="color:var(--red);font-size:13px">❌ Mahasiswa tidak ditemukan</div>';
+    return;
+  }
+  const {error} = await sb.from('enrollments').insert({mahasiswa_id:found.id,matkul_id:mkId});
+  if(error && error.code==='23505'){
+    document.getElementById('enroll_result').innerHTML = '<div style="color:var(--amber);font-size:13px">⚠️ Mahasiswa sudah terdaftar</div>';
+    return;
+  }
+  if(error){ document.getElementById('enroll_result').innerHTML = `<div style="color:var(--red);font-size:13px">❌ ${error.message}</div>`; return; }
+  document.getElementById('enroll_result').innerHTML = `<div style="color:var(--green);font-size:13px">✅ ${found.nama} berhasil didaftarkan!</div>`;
+  document.getElementById('enroll_q').value='';
+}
+
+// ── MODAL ──────────────────────────────────────────────
+function openModal(title, content){
+  document.getElementById('modalBox').innerHTML = `
+    <div class="modal-title">${title}<span class="modal-close" onclick="closeModal()">×</span></div>
+    ${content}`;
+  document.getElementById('modalBg').classList.add('open');
+}
+function closeModal(){ document.getElementById('modalBg').classList.remove('open'); }
+document.getElementById('modalBg').addEventListener('click', e=>{ if(e.target===document.getElementById('modalBg')) closeModal(); });
+
+// ── HELPERS ──────────────────────────────────────────
+function getNilaiHuruf(n){
+  if(n===null||n===undefined) return '-';
+  return n>=85?'A':n>=80?'A-':n>=75?'B+':n>=70?'B':n>=65?'B-':n>=60?'C+':n>=55?'C':'D';
+}
+function getNilaiMutu(n){
+  if(n===null||n===undefined) return 0;
+  return n>=85?4.0:n>=80?3.7:n>=75?3.5:n>=70?3.0:n>=65?2.7:n>=60?2.5:n>=55?2.0:1.0;
+}
+
+let toastTimer;
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),2800);
+}
+</script>
+</body>
+</html>
