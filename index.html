@@ -203,7 +203,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       <label class="lbl">Password</label>
       <input class="inp" type="password" id="loginPass" placeholder="••••••••">
       <button class="btn-primary" onclick="doLogin()">Masuk →</button>
-      <div class="auth-toggle" onclick="toggleForm()">Belum punya akun? <span>Daftar di sini</span></div>
+      <div class="auth-toggle" id="toggleFormBtn" onclick="toggleForm()">Belum punya akun? <span>Daftar di sini</span></div>
     </div>
     <div id="registerForm" style="display:none">
       <div class="inp-row">
@@ -300,14 +300,40 @@ window.addEventListener('load', ()=>{
 let authRole = 'mahasiswa';
 let showingRegister = false;
 
+// Kredensial default Admin (sudah ditanam).
+// Akun ini harus benar-benar ada di Supabase (lihat catatan di bawah).
+// Setelah login pertama kali, admin bisa ganti password lewat menu Profil → Ganti Password.
+const DEFAULT_ADMIN_EMAIL = 'admin@educampus.ac.id';
+const DEFAULT_ADMIN_PASS  = 'Admin123!';
+
 function setAuthRole(r){
   authRole = r;
-  ['mahasiswa','dosen','admin'].forEach(x=>{
-    document.getElementById('tab'+x.charAt(0).toUpperCase()+x.slice(1,3).toUpperCase()+x.slice(3))?.classList.remove('active');
-  });
-  document.getElementById('tab'+(r==='mahasiswa'?'Mhs':r==='dosen'?'Dsn':'Adm')).classList.add('active');
+  clearAuthMsg();
+
+  // reset semua tab, lalu aktifkan yang dipilih
+  document.getElementById('tabMhs').classList.remove('active');
+  document.getElementById('tabDsn').classList.remove('active');
+  document.getElementById('tabAdm').classList.remove('active');
+  const tabId = r==='mahasiswa' ? 'tabMhs' : (r==='dosen' ? 'tabDsn' : 'tabAdm');
+  document.getElementById(tabId).classList.add('active');
+
   document.getElementById('nimLabel').textContent = r==='mahasiswa'?'NIM':r==='dosen'?'NIDN':'ID';
   document.getElementById('semesterWrap').style.display = r==='mahasiswa'?'block':'none';
+
+  if(r==='admin'){
+    // Admin: isi otomatis kredensial bawaan & sembunyikan opsi daftar
+    document.getElementById('loginEmail').value = DEFAULT_ADMIN_EMAIL;
+    document.getElementById('loginPass').value = DEFAULT_ADMIN_PASS;
+    document.getElementById('toggleFormBtn').style.display = 'none';
+    showingRegister = false;
+    document.getElementById('loginForm').style.display = 'block';
+    document.getElementById('registerForm').style.display = 'none';
+  } else {
+    // Mahasiswa / Dosen: kosongkan field & tampilkan opsi daftar lagi
+    document.getElementById('loginEmail').value = '';
+    document.getElementById('loginPass').value = '';
+    document.getElementById('toggleFormBtn').style.display = 'block';
+  }
 }
 
 function toggleForm(){
