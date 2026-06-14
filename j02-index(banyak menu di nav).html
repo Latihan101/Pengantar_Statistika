@@ -40,6 +40,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .switch-link span{color:var(--p);font-weight:600}
 .msg-err{background:var(--rb);color:var(--r);border-radius:8px;padding:9px 12px;font-size:13px;margin-bottom:12px;display:none}
 .msg-ok{background:var(--gb);color:var(--g);border-radius:8px;padding:9px 12px;font-size:13px;margin-bottom:12px;display:none}
+/* Info box khusus dosen */
+.dosen-info{background:var(--pl);border:1.5px solid var(--p);border-radius:9px;padding:12px 14px;font-size:13px;color:var(--p);margin-bottom:12px;display:none}
+.dosen-info strong{display:block;font-weight:700;margin-bottom:3px}
 
 /* SETUP */
 #screen-setup{position:fixed;inset:0;background:linear-gradient(135deg,#0f172a,#1e1b4b);display:none;align-items:center;justify-content:center;z-index:99;padding:20px;overflow-y:auto}
@@ -203,7 +206,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
    MOBILE RESPONSIVE (≤ 640px)
    ═══════════════════════════════════════════ */
 @media(max-width:640px){
-  /* Sidebar jadi drawer */
   .sidebar{
     position:fixed;left:0;top:0;bottom:0;z-index:45;
     transform:translateX(-100%);
@@ -212,60 +214,31 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   .sidebar.open{transform:translateX(0)}
   .sb-overlay{display:block;opacity:0;pointer-events:none;transition:opacity .25s}
   .sb-overlay.show{opacity:1;pointer-events:auto}
-
-  /* Topbar */
   .topbar{padding:0 12px;height:52px}
   .hamburger{display:block}
   .page-title{font-size:14px}
-
-  /* Bottom nav muncul */
   .bottom-nav{display:block}
   .content{padding:12px 12px calc(var(--bot) + 16px)}
-
-  /* Main tidak punya padding kiri sidebar */
   #app{flex-direction:column}
   .main{height:100vh}
-
-  /* Stats grid jadi 2 kolom */
   .stats-grid{grid-template-columns:1fr 1fr;gap:8px}
   .stat-val{font-size:20px}
-
-  /* Row2 jadi 1 kolom */
   .row2{grid-template-columns:1fr}
-
-  /* Pertemuan grid jadi 3 kolom */
   .prt-grid{grid-template-columns:repeat(3,1fr);gap:7px;padding:10px}
-
-  /* Modal jadi bottom sheet */
   .modal-bg{align-items:flex-end}
   .modal,.modal.lg{border-radius:20px 20px 0 0;width:100%;max-height:92vh;padding:16px 16px 32px}
-
-  /* Table scroll horizontal */
   .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .tbl{min-width:500px}
-
-  /* Input font size 16px mencegah zoom di iOS/Android */
   .fi,.inp,.cfg-inp{font-size:16px}
-
-  /* Form register: 1 kolom di layar kecil */
   .inp2{grid-template-columns:1fr}
   .fr{grid-template-columns:1fr}
-
-  /* Absensi button lebih kecil */
   .abs-btn{padding:6px 8px;font-size:10px}
-
-  /* Toast di atas bottom nav */
   .toast{bottom:76px}
-
-  /* Breadcrumb */
   .breadcrumb{font-size:11px}
-
-  /* Hide sidebar logout di mobile (ada di bottom nav) */
   .sb-bottom{display:none}
 }
 
 @media(min-width:641px){
-  /* Desktop: sembunyikan bottom nav & hamburger */
   .bottom-nav{display:none!important}
   .hamburger{display:none!important}
   .sb-overlay{display:none!important}
@@ -306,12 +279,20 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       </div>
       <div class="msg-err" id="authErr"></div>
       <div class="msg-ok" id="authOk"></div>
+
+      <!-- Info khusus dosen: tidak ada pendaftaran -->
+      <div class="dosen-info" id="dosenInfo">
+        <strong>👨‍🏫 Akun Dosen</strong>
+        Akun dosen telah dibuat oleh administrator. Silakan login langsung dengan email dan password yang diberikan.
+      </div>
+
       <div id="fLogin">
         <label class="lbl">Email</label>
         <input class="inp" type="email" id="lEmail" placeholder="email@kampus.ac.id" autocomplete="email">
         <label class="lbl">Password</label>
         <input class="inp" type="password" id="lPass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()" autocomplete="current-password">
         <button class="btn-full" onclick="doLogin()">Masuk →</button>
+        <!-- Link daftar hanya muncul saat tab Mahasiswa -->
         <div class="switch-link" id="switchLink" onclick="toggleReg()">Belum punya akun? <span>Daftar di sini</span></div>
       </div>
       <div id="fReg" style="display:none">
@@ -336,7 +317,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 
 <!-- APP -->
 <div id="app" style="display:none;height:100vh;flex-direction:row">
-  <!-- Sidebar overlay -->
   <div class="sb-overlay" id="sbOverlay" onclick="closeSidebar()"></div>
 
   <aside class="sidebar" id="sidebar">
@@ -398,7 +378,7 @@ function closeSidebar() {
 // ═══════════════════════════════════════════════════════════════
 // SETUP
 // ═══════════════════════════════════════════════════════════════
-const FIXED_URL = 'https://script.google.com/macros/s/AKfycby6p7Hzmrus0uJ2bzecWpNCteZfH-94maL6mpsm5R0hlquzaMEru0GsG5rlluSRsJ9i/exec'; // ← paste URL deployment kamu
+const FIXED_URL = 'https://script.google.com/macros/s/AKfycby6p7Hzmrus0uJ2bzecWpNCteZfH-94maL6mpsm5R0hlquzaMEru0GsG5rlluSRsJ9i/exec';
 
 window.onload = () => {
   GAS_URL = FIXED_URL;
@@ -434,15 +414,30 @@ async function startLogin() {
 // ═══════════════════════════════════════════════════════════════
 let authRole = 'mahasiswa', showReg = false;
 
+// ── FIX: Dosen tidak bisa daftar ──────────────────────────────
 function setRole(r) {
   authRole = r;
   document.getElementById('tabM').classList.toggle('on', r === 'mahasiswa');
   document.getElementById('tabD').classList.toggle('on', r === 'dosen');
-  document.getElementById('switchLink').style.display = r === 'mahasiswa' ? 'block' : 'none';
+
+  const isDosen = r === 'dosen';
+
+  // Sembunyikan link daftar & info dosen bergantian
+  document.getElementById('switchLink').style.display = isDosen ? 'none' : 'block';
+  document.getElementById('dosenInfo').style.display = isDosen ? 'block' : 'none';
+
+  // Paksa kembali ke form login jika sedang di form register
+  if (isDosen && showReg) {
+    showReg = false;
+    document.getElementById('fLogin').style.display = 'block';
+    document.getElementById('fReg').style.display = 'none';
+  }
   clearMsg();
 }
 
 function toggleReg() {
+  // Hanya mahasiswa yang boleh toggle ke form register
+  if (authRole === 'dosen') return;
   showReg = !showReg;
   document.getElementById('fLogin').style.display = showReg ? 'none' : 'block';
   document.getElementById('fReg').style.display = showReg ? 'block' : 'none';
@@ -487,6 +482,8 @@ async function doLogout() {
   document.getElementById('screen-login').style.display = 'flex';
   document.getElementById('lEmail').value = '';
   document.getElementById('lPass').value = '';
+  // Reset ke tab mahasiswa saat logout
+  setRole('mahasiswa');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -523,20 +520,27 @@ function buildNav() {
   ];
   const nav = user.role === 'dosen' ? dsn : mhs;
 
-  // Sidebar nav
+  // Sidebar nav — semua menu + Keluar
   document.getElementById('navMenu').innerHTML =
     '<div class="nav-sec">Menu</div>' +
     nav.map(n => `<div class="nav-item" id="nav-${n.p}" onclick="go('${n.p}');closeSidebar()"><span class="nav-ico">${n.i}</span>${n.l}</div>`).join('') +
     `<div class="nav-item" onclick="doLogout()"><span class="nav-ico">🚪</span>Keluar</div>`;
 
-  // Bottom nav (mobile) — max 5 items
-  const bnItems = nav.slice(0, 5);
+  // ── FIX: Bottom nav hanya 4 item utama + Keluar ──────────────
+  // Dosen:     Dashboard, Pertemuan, Input Nilai, Notifikasi
+  // Mahasiswa: Dashboard, Pertemuan, Absensi, Nilai
+  const bnKeys = user.role === 'dosen'
+    ? ['dashboard', 'pertemuan', 'nilai_dsn', 'notifikasi']
+    : ['dashboard', 'pertemuan', 'absensi_mhs', 'nilai_mhs'];
+  const bnItems = nav.filter(n => bnKeys.includes(n.p));
+
   document.getElementById('bottomNav').innerHTML =
-    `<div class="bn-items">${bnItems.map(n =>
-      `<div class="bn-item" id="bn-${n.p}" onclick="go('${n.p}')">
-        <div class="bn-ico">${n.i}</div>
-        <div>${n.l}</div>
-      </div>`).join('')}
+    `<div class="bn-items">
+      ${bnItems.map(n =>
+        `<div class="bn-item" id="bn-${n.p}" onclick="go('${n.p}')">
+          <div class="bn-ico">${n.i}</div>
+          <div>${n.l}</div>
+        </div>`).join('')}
       <div class="bn-item" onclick="doLogout()"><div class="bn-ico">🚪</div><div>Keluar</div></div>
     </div>`;
 }
@@ -567,7 +571,6 @@ function go(page, params = {}) {
   };
   if (map[page]) map[page](params);
   else setContent('<div class="empty"><div class="emo">🚧</div><h3>Segera Hadir</h3></div>');
-  // Scroll ke atas saat ganti halaman
   document.getElementById('content').scrollTop = 0;
 }
 
@@ -1465,7 +1468,7 @@ function resetUrl() {
 // ════════════════════════════════════════════════════════════════
 // MODAL
 // ════════════════════════════════════════════════════════════════
-function openModal(title, content, size = '') {
+function openModal(title, content) {
   const box = document.getElementById('modalBox');
   box.className = 'modal';
   box.innerHTML = `<div style="width:40px;height:4px;background:var(--border);border-radius:4px;margin:0 auto 16px"></div>
