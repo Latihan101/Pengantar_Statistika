@@ -1,6 +1,7 @@
 Solusi biar mahasiswa tidak perlu input URL sendiri — hardcode URL langsung di HTML. Cari bagian ini di index.html:
 
-javascriptwindow.onload = () => {
+
+window.onload = () => {
   GAS_URL = localStorage.getItem('ec_gas_url') || '';
   if (GAS_URL) startLogin();
   else document.getElementById('screen-setup').style.display = 'flex';
@@ -8,7 +9,8 @@ javascriptwindow.onload = () => {
 
 Ganti jadi:
 
-javascriptconst FIXED_URL = 'https://script.google.com/macros/s/xxx.../exec'; // ← paste URL deployment kamu
+
+const FIXED_URL = 'https://script.google.com/macros/s/xxx.../exec'; // ← paste URL deployment kamu
 
 window.onload = () => {
   GAS_URL = FIXED_URL;
