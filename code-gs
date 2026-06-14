@@ -1,0 +1,565 @@
+// ═══════════════════════════════════════════════════════════════
+// EDUCAMPUS — Google Apps Script Backend
+// Satu dosen, banyak mahasiswa, 1 mata kuliah, 16 pertemuan
+// ═══════════════════════════════════════════════════════════════
+
+// ── KONFIGURASI (WAJIB DIISI) ───────────────────────────────────
+const CONFIG = {
+  DOSEN_EMAIL: "dosen@email.com",       // Email login dosen
+  DOSEN_PASSWORD: "dosen123",           // Password dosen
+  DOSEN_NAMA: "Dr. Budi Santoso",       // Nama dosen
+  NAMA_MATKUL: "Pemrograman Web",       // Nama mata kuliah
+  KODE_MATKUL: "TI401",
+  SKS: 3,
+  JADWAL: "Senin 08.00–10.30",
+  RUANG: "Lab Komputer B",
+  SEMESTER: "Gasal 2024/2025",
+};
+
+// ── SHEET NAMES ──────────────────────────────────────────────────
+const SHEETS = {
+  MAHASISWA: "Mahasiswa",
+  PERTEMUAN: "Pertemuan",
+  MATERI: "Materi",
+  TUGAS: "Tugas",
+  TUGAS_SUBMIT: "TugasSubmit",
+  KUIS: "Kuis",
+  KUIS_SOAL: "KuisSoal",
+  KUIS_JAWABAN: "KuisJawaban",
+  ABSENSI: "Absensi",
+  NOTIFIKASI: "Notifikasi",
+  NILAI: "Nilai",
+};
+
+// ════════════════════════════════════════════════════════════════
+// ENTRY POINT
+// ════════════════════════════════════════════════════════════════
+function doGet() {
+  initSheets();
+  return HtmlService.createHtmlOutputFromFile("index")
+    .setTitle("EduCampus · " + CONFIG.NAMA_MATKUL)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function doPost(e) {
+  const data = JSON.parse(e.postData.contents);
+  const action = data.action;
+  try {
+    const handlers = {
+      login: handleLogin,
+      register: handleRegister,
+      getConfig: handleGetConfig,
+      getPertemuan: handleGetPertemuan,
+      getMateri: handleGetMateri,
+      addMateri: handleAddMateri,
+      deleteMateri: handleDeleteMateri,
+      editTopik: handleEditTopik,
+      getTugas: handleGetTugas,
+      addTugas: handleAddTugas,
+      deleteTugas: handleDeleteTugas,
+      submitTugas: handleSubmitTugas,
+      getSubmisiTugas: handleGetSubmisiTugas,
+      nilaiTugas: handleNilaiTugas,
+      getKuis: handleGetKuis,
+      addKuis: handleAddKuis,
+      deleteKuis: handleDeleteKuis,
+      getSoal: handleGetSoal,
+      addSoal: handleAddSoal,
+      deleteSoal: handleDeleteSoal,
+      submitKuis: handleSubmitKuis,
+      getHasilKuis: handleGetHasilKuis,
+      nilaiEssay: handleNilaiEssay,
+      getAbsensi: handleGetAbsensi,
+      submitAbsensi: handleSubmitAbsensi,
+      updateAbsensi: handleUpdateAbsensi,
+      getNotifikasi: handleGetNotifikasi,
+      addNotifikasi: handleAddNotifikasi,
+      deleteNotifikasi: handleDeleteNotifikasi,
+      getNilaiMhs: handleGetNilaiMhs,
+      updateNilai: handleUpdateNilai,
+      getAllMahasiswa: handleGetAllMahasiswa,
+      deleteMahasiswa: handleDeleteMahasiswa,
+      updateProfile: handleUpdateProfile,
+      getDashboard: handleGetDashboard,
+    };
+    if (!handlers[action]) return jsonRes({ ok: false, msg: "Action tidak dikenal" });
+    return handlers[action](data);
+  } catch (err) {
+    return jsonRes({ ok: false, msg: err.toString() });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// INIT SHEETS
+// ════════════════════════════════════════════════════════════════
+function initSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const headers = {
+    [SHEETS.MAHASISWA]:    ["id","nama","email","password","nim","semester","prodi","created_at"],
+    [SHEETS.PERTEMUAN]:    ["id","pertemuan_ke","topik","tanggal","keterangan"],
+    [SHEETS.MATERI]:       ["id","pertemuan_id","judul","deskripsi","tipe","konten","file_url","created_at"],
+    [SHEETS.TUGAS]:        ["id","pertemuan_id","judul","deskripsi","deadline","poin","file_url","created_at"],
+    [SHEETS.TUGAS_SUBMIT]: ["id","tugas_id","mahasiswa_id","file_url","catatan","submitted_at","nilai","feedback"],
+    [SHEETS.KUIS]:         ["id","pertemuan_id","judul","deskripsi","durasi_menit","created_at"],
+    [SHEETS.KUIS_SOAL]:    ["id","kuis_id","urutan","tipe","pertanyaan","pilihan_a","pilihan_b","pilihan_c","pilihan_d","jawaban_benar","bobot"],
+    [SHEETS.KUIS_JAWABAN]: ["id","kuis_id","mahasiswa_id","jawaban_json","nilai","status","submitted_at"],
+    [SHEETS.ABSENSI]:      ["id","pertemuan_id","mahasiswa_id","status","keterangan","waktu"],
+    [SHEETS.NOTIFIKASI]:   ["id","judul","isi","penting","created_at"],
+    [SHEETS.NILAI]:        ["mahasiswa_id","uts","uas","tugas_rata","kuis_rata","nilai_akhir","huruf","updated_at"],
+  };
+  for (const [name, hdrs] of Object.entries(headers)) {
+    let sh = ss.getSheetByName(name);
+    if (!sh) {
+      sh = ss.insertSheet(name);
+      sh.getRange(1, 1, 1, hdrs.length).setValues([hdrs]).setFontWeight("bold").setBackground("#E8EAF6");
+      sh.setFrozenRows(1);
+    }
+  }
+  // Init 16 pertemuan jika kosong
+  const prtSh = ss.getSheetByName(SHEETS.PERTEMUAN);
+  if (prtSh.getLastRow() <= 1) {
+    for (let i = 1; i <= 16; i++) {
+      prtSh.appendRow([uid(), i, "", "", ""]);
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════════════════════════════
+function handleLogin(data) {
+  const { email, password } = data;
+  // Cek dosen
+  if (email === CONFIG.DOSEN_EMAIL && password === CONFIG.DOSEN_PASSWORD) {
+    return jsonRes({ ok: true, user: { id: "dosen", nama: CONFIG.DOSEN_NAMA, email, role: "dosen" } });
+  }
+  // Cek mahasiswa
+  const rows = getSheetData(SHEETS.MAHASISWA);
+  const mhs = rows.find(r => r.email === email && r.password === password);
+  if (!mhs) return jsonRes({ ok: false, msg: "Email atau password salah" });
+  return jsonRes({ ok: true, user: { id: mhs.id, nama: mhs.nama, email: mhs.email, nim: mhs.nim, semester: mhs.semester, prodi: mhs.prodi, role: "mahasiswa" } });
+}
+
+function handleRegister(data) {
+  const { nama, email, password, nim, semester, prodi } = data;
+  if (!nama || !email || !password || !nim) return jsonRes({ ok: false, msg: "Semua field wajib diisi" });
+  const rows = getSheetData(SHEETS.MAHASISWA);
+  if (rows.find(r => r.email === email)) return jsonRes({ ok: false, msg: "Email sudah terdaftar" });
+  if (rows.find(r => r.nim === nim)) return jsonRes({ ok: false, msg: "NIM sudah terdaftar" });
+  const id = uid();
+  appendRow(SHEETS.MAHASISWA, [id, nama, email, password, nim, semester || 1, prodi || "", now()]);
+  // Inisialisasi nilai kosong
+  appendRow(SHEETS.NILAI, [id, "", "", "", "", "", "", now()]);
+  return jsonRes({ ok: true, user: { id, nama, email, nim, semester, prodi, role: "mahasiswa" } });
+}
+
+// ════════════════════════════════════════════════════════════════
+// CONFIG & DASHBOARD
+// ════════════════════════════════════════════════════════════════
+function handleGetConfig() {
+  return jsonRes({ ok: true, config: CONFIG });
+}
+
+function handleGetDashboard(data) {
+  const { userId, role } = data;
+  const prts = getSheetData(SHEETS.PERTEMUAN);
+  const totalPrt = prts.filter(p => p.topik).length;
+  if (role === "dosen") {
+    const mhs = getSheetData(SHEETS.MAHASISWA);
+    const notifs = getSheetData(SHEETS.NOTIFIKASI).slice(-5).reverse();
+    const tugasList = getSheetData(SHEETS.TUGAS);
+    const submitList = getSheetData(SHEETS.TUGAS_SUBMIT);
+    const tugasStats = tugasList.map(t => ({
+      judul: t.judul,
+      total_submit: submitList.filter(s => s.tugas_id === t.id).length,
+      belum_nilai: submitList.filter(s => s.tugas_id === t.id && (s.nilai === "" || s.nilai === null)).length,
+    })).slice(-5);
+    return jsonRes({ ok: true, dashboard: { total_mhs: mhs.length, total_prt: totalPrt, notifs, tugas_stats: tugasStats } });
+  } else {
+    const absensiList = getSheetData(SHEETS.ABSENSI).filter(a => a.mahasiswa_id === userId);
+    const hadir = absensiList.filter(a => a.status === "hadir").length;
+    const tugasList = getSheetData(SHEETS.TUGAS);
+    const submits = getSheetData(SHEETS.TUGAS_SUBMIT).filter(s => s.mahasiswa_id === userId);
+    const notifs = getSheetData(SHEETS.NOTIFIKASI).slice(-5).reverse();
+    const nilai = getSheetData(SHEETS.NILAI).find(n => n.mahasiswa_id === userId);
+    return jsonRes({ ok: true, dashboard: {
+      total_prt: totalPrt, hadir, total_absensi: absensiList.length,
+      tugas_dikumpul: submits.length, total_tugas: tugasList.length,
+      notifs, nilai: nilai || {}
+    }});
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// PERTEMUAN
+// ════════════════════════════════════════════════════════════════
+function handleGetPertemuan(data) {
+  const prts = getSheetData(SHEETS.PERTEMUAN).sort((a, b) => a.pertemuan_ke - b.pertemuan_ke);
+  const materi = getSheetData(SHEETS.MATERI);
+  const tugas = getSheetData(SHEETS.TUGAS);
+  const kuis = getSheetData(SHEETS.KUIS);
+  const absensi = getSheetData(SHEETS.ABSENSI);
+  const enriched = prts.map(p => ({
+    ...p,
+    jumlah_materi: materi.filter(m => m.pertemuan_id === p.id).length,
+    jumlah_tugas: tugas.filter(t => t.pertemuan_id === p.id).length,
+    jumlah_kuis: kuis.filter(k => k.pertemuan_id === p.id).length,
+    jumlah_absensi: absensi.filter(a => a.pertemuan_id === p.id).length,
+  }));
+  return jsonRes({ ok: true, pertemuan: enriched });
+}
+
+function handleEditTopik(data) {
+  const { prtId, topik, tanggal, keterangan } = data;
+  updateRow(SHEETS.PERTEMUAN, "id", prtId, { topik, tanggal: tanggal || "", keterangan: keterangan || "" });
+  return jsonRes({ ok: true });
+}
+
+// ════════════════════════════════════════════════════════════════
+// MATERI
+// ════════════════════════════════════════════════════════════════
+function handleGetMateri(data) {
+  const list = getSheetData(SHEETS.MATERI).filter(m => m.pertemuan_id === data.prtId);
+  return jsonRes({ ok: true, materi: list });
+}
+
+function handleAddMateri(data) {
+  const { prtId, judul, deskripsi, tipe, konten, fileUrl } = data;
+  if (!judul) return jsonRes({ ok: false, msg: "Judul wajib diisi" });
+  appendRow(SHEETS.MATERI, [uid(), prtId, judul, deskripsi || "", tipe || "teks", konten || "", fileUrl || "", now()]);
+  return jsonRes({ ok: true });
+}
+
+function handleDeleteMateri(data) {
+  deleteRow(SHEETS.MATERI, "id", data.id);
+  return jsonRes({ ok: true });
+}
+
+// ════════════════════════════════════════════════════════════════
+// TUGAS
+// ════════════════════════════════════════════════════════════════
+function handleGetTugas(data) {
+  const list = getSheetData(SHEETS.TUGAS).filter(t => t.pertemuan_id === data.prtId);
+  return jsonRes({ ok: true, tugas: list });
+}
+
+function handleAddTugas(data) {
+  const { prtId, judul, deskripsi, deadline, poin, fileUrl } = data;
+  if (!judul) return jsonRes({ ok: false, msg: "Judul wajib diisi" });
+  appendRow(SHEETS.TUGAS, [uid(), prtId, judul, deskripsi || "", deadline || "", poin || 100, fileUrl || "", now()]);
+  return jsonRes({ ok: true });
+}
+
+function handleDeleteTugas(data) {
+  deleteRow(SHEETS.TUGAS, "id", data.id);
+  return jsonRes({ ok: true });
+}
+
+function handleSubmitTugas(data) {
+  const { tugasId, mahasiswaId, fileUrl, catatan } = data;
+  const existing = getSheetData(SHEETS.TUGAS_SUBMIT).find(s => s.tugas_id === tugasId && s.mahasiswa_id === mahasiswaId);
+  if (existing) return jsonRes({ ok: false, msg: "Sudah pernah mengumpulkan" });
+  appendRow(SHEETS.TUGAS_SUBMIT, [uid(), tugasId, mahasiswaId, fileUrl || "", catatan || "", now(), "", ""]);
+  return jsonRes({ ok: true });
+}
+
+function handleGetSubmisiTugas(data) {
+  const submisi = getSheetData(SHEETS.TUGAS_SUBMIT).filter(s => s.tugas_id === data.tugasId);
+  const mhs = getSheetData(SHEETS.MAHASISWA);
+  const enriched = submisi.map(s => {
+    const m = mhs.find(m => m.id === s.mahasiswa_id) || {};
+    return { ...s, mahasiswa_nama: m.nama || "-", mahasiswa_nim: m.nim || "-" };
+  });
+  return jsonRes({ ok: true, submisi: enriched });
+}
+
+function handleNilaiTugas(data) {
+  const { submitId, nilai, feedback } = data;
+  updateRow(SHEETS.TUGAS_SUBMIT, "id", submitId, { nilai, feedback: feedback || "" });
+  return jsonRes({ ok: true });
+}
+
+// ════════════════════════════════════════════════════════════════
+// KUIS
+// ════════════════════════════════════════════════════════════════
+function handleGetKuis(data) {
+  const list = getSheetData(SHEETS.KUIS).filter(k => k.pertemuan_id === data.prtId);
+  return jsonRes({ ok: true, kuis: list });
+}
+
+function handleAddKuis(data) {
+  const { prtId, judul, deskripsi, durasi } = data;
+  if (!judul) return jsonRes({ ok: false, msg: "Judul wajib diisi" });
+  const id = uid();
+  appendRow(SHEETS.KUIS, [id, prtId, judul, deskripsi || "", durasi || 30, now()]);
+  return jsonRes({ ok: true, id });
+}
+
+function handleDeleteKuis(data) {
+  deleteRow(SHEETS.KUIS, "id", data.id);
+  deleteRowsWhere(SHEETS.KUIS_SOAL, "kuis_id", data.id);
+  return jsonRes({ ok: true });
+}
+
+function handleGetSoal(data) {
+  const list = getSheetData(SHEETS.KUIS_SOAL).filter(s => s.kuis_id === data.kuisId).sort((a, b) => a.urutan - b.urutan);
+  return jsonRes({ ok: true, soal: list });
+}
+
+function handleAddSoal(data) {
+  const { kuisId, urutan, tipe, pertanyaan, pilihanA, pilihanB, pilihanC, pilihanD, jawabanBenar, bobot } = data;
+  if (!pertanyaan) return jsonRes({ ok: false, msg: "Pertanyaan wajib diisi" });
+  appendRow(SHEETS.KUIS_SOAL, [uid(), kuisId, urutan, tipe, pertanyaan, pilihanA || "", pilihanB || "", pilihanC || "", pilihanD || "", jawabanBenar || "", bobot || 10]);
+  return jsonRes({ ok: true });
+}
+
+function handleDeleteSoal(data) {
+  deleteRow(SHEETS.KUIS_SOAL, "id", data.id);
+  return jsonRes({ ok: true });
+}
+
+function handleSubmitKuis(data) {
+  const { kuisId, mahasiswaId, jawabanJson } = data;
+  const existing = getSheetData(SHEETS.KUIS_JAWABAN).find(j => j.kuis_id === kuisId && j.mahasiswa_id === mahasiswaId);
+  if (existing) return jsonRes({ ok: false, msg: "Sudah pernah mengerjakan" });
+  const soalList = getSheetData(SHEETS.KUIS_SOAL).filter(s => s.kuis_id === kuisId);
+  const jawaban = JSON.parse(jawabanJson);
+  let totalNilai = 0, totalBobot = 0, hasEssay = false;
+  soalList.forEach(s => {
+    totalBobot += Number(s.bobot) || 10;
+    if (s.tipe === "pilihan_ganda") {
+      const jwb = jawaban[s.id] || "";
+      if (jwb.toUpperCase() === (s.jawaban_benar || "").toUpperCase()) totalNilai += Number(s.bobot);
+    } else { hasEssay = true; }
+  });
+  const pgBobot = soalList.filter(s => s.tipe === "pilihan_ganda").reduce((a, s) => a + Number(s.bobot), 0);
+  const nilaiPG = pgBobot > 0 ? Math.round((totalNilai / pgBobot) * 100) : 0;
+  const status = hasEssay ? "selesai" : "dinilai";
+  const nilaiAkhir = hasEssay ? "" : nilaiPG;
+  appendRow(SHEETS.KUIS_JAWABAN, [uid(), kuisId, mahasiswaId, jawabanJson, nilaiAkhir, status, now()]);
+  return jsonRes({ ok: true, nilai: nilaiAkhir, status });
+}
+
+function handleGetHasilKuis(data) {
+  const list = getSheetData(SHEETS.KUIS_JAWABAN).filter(j => j.kuis_id === data.kuisId);
+  if (data.mahasiswaId) {
+    const mine = list.find(j => j.mahasiswa_id === data.mahasiswaId);
+    if (!mine) return jsonRes({ ok: true, hasil: null });
+    const soal = getSheetData(SHEETS.KUIS_SOAL).filter(s => s.kuis_id === data.kuisId).sort((a, b) => a.urutan - b.urutan);
+    return jsonRes({ ok: true, hasil: mine, soal });
+  }
+  const mhs = getSheetData(SHEETS.MAHASISWA);
+  const enriched = list.map(j => {
+    const m = mhs.find(m => m.id === j.mahasiswa_id) || {};
+    return { ...j, mahasiswa_nama: m.nama || "-", mahasiswa_nim: m.nim || "-" };
+  });
+  return jsonRes({ ok: true, hasil: enriched });
+}
+
+function handleNilaiEssay(data) {
+  const { jawabanId, kuisId, mahasiswaId, nilaiEssay } = data;
+  const soalList = getSheetData(SHEETS.KUIS_SOAL).filter(s => s.kuis_id === kuisId);
+  const jawaban = getSheetData(SHEETS.KUIS_JAWABAN).find(j => j.id === jawabanId);
+  if (!jawaban) return jsonRes({ ok: false, msg: "Data tidak ditemukan" });
+  const parsed = JSON.parse(jawaban.jawaban_json || "{}");
+  const pgSoal = soalList.filter(s => s.tipe === "pilihan_ganda");
+  const essaySoal = soalList.filter(s => s.tipe === "essay");
+  let pgNilai = 0;
+  pgSoal.forEach(s => { if ((parsed[s.id] || "").toUpperCase() === (s.jawaban_benar || "").toUpperCase()) pgNilai += Number(s.bobot); });
+  const totalBobot = soalList.reduce((a, s) => a + Number(s.bobot), 0);
+  const essayBobot = essaySoal.reduce((a, s) => a + Number(s.bobot), 0);
+  const essayNilai = Object.values(nilaiEssay).reduce((a, v) => a + Number(v), 0);
+  const finalNilai = totalBobot > 0 ? Math.round(((pgNilai + essayNilai) / totalBobot) * 100) : 0;
+  const newJson = JSON.stringify({ ...parsed, _essay_nilai: nilaiEssay });
+  updateRow(SHEETS.KUIS_JAWABAN, "id", jawabanId, { jawaban_json: newJson, nilai: finalNilai, status: "dinilai" });
+  return jsonRes({ ok: true, nilai: finalNilai });
+}
+
+// ════════════════════════════════════════════════════════════════
+// ABSENSI
+// ════════════════════════════════════════════════════════════════
+function handleGetAbsensi(data) {
+  const { prtId, userId, role } = data;
+  if (role === "dosen") {
+    const absensi = getSheetData(SHEETS.ABSENSI).filter(a => a.pertemuan_id === prtId);
+    const mhs = getSheetData(SHEETS.MAHASISWA);
+    const enriched = absensi.map(a => {
+      const m = mhs.find(m => m.id === a.mahasiswa_id) || {};
+      return { ...a, mahasiswa_nama: m.nama || "-", mahasiswa_nim: m.nim || "-" };
+    });
+    const terdaftar = mhs.map(m => {
+      const abs = absensi.find(a => a.mahasiswa_id === m.id);
+      return { mahasiswa_id: m.id, mahasiswa_nama: m.nama, mahasiswa_nim: m.nim, status: abs?.status || "belum", keterangan: abs?.keterangan || "", absensi_id: abs?.id || null };
+    });
+    return jsonRes({ ok: true, absensi: terdaftar });
+  } else {
+    const absensi = getSheetData(SHEETS.ABSENSI).filter(a => a.mahasiswa_id === userId);
+    return jsonRes({ ok: true, absensi });
+  }
+}
+
+function handleSubmitAbsensi(data) {
+  const { prtId, mahasiswaId, status, keterangan } = data;
+  const existing = getSheetData(SHEETS.ABSENSI).find(a => a.pertemuan_id === prtId && a.mahasiswa_id === mahasiswaId);
+  if (existing) return jsonRes({ ok: false, msg: "Absensi sudah dicatat" });
+  appendRow(SHEETS.ABSENSI, [uid(), prtId, mahasiswaId, status || "hadir", keterangan || "", now()]);
+  return jsonRes({ ok: true });
+}
+
+function handleUpdateAbsensi(data) {
+  const { prtId, mahasiswaId, status, keterangan } = data;
+  const existing = getSheetData(SHEETS.ABSENSI).find(a => a.pertemuan_id === prtId && a.mahasiswa_id === mahasiswaId);
+  if (existing) {
+    updateRow(SHEETS.ABSENSI, "id", existing.id, { status, keterangan: keterangan || "" });
+  } else {
+    appendRow(SHEETS.ABSENSI, [uid(), prtId, mahasiswaId, status, keterangan || "", now()]);
+  }
+  return jsonRes({ ok: true });
+}
+
+// ════════════════════════════════════════════════════════════════
+// NOTIFIKASI
+// ════════════════════════════════════════════════════════════════
+function handleGetNotifikasi() {
+  const list = getSheetData(SHEETS.NOTIFIKASI).reverse();
+  return jsonRes({ ok: true, notifikasi: list });
+}
+
+function handleAddNotifikasi(data) {
+  const { judul, isi, penting } = data;
+  if (!judul) return jsonRes({ ok: false, msg: "Judul wajib" });
+  appendRow(SHEETS.NOTIFIKASI, [uid(), judul, isi || "", penting ? "ya" : "", now()]);
+  return jsonRes({ ok: true });
+}
+
+function handleDeleteNotifikasi(data) {
+  deleteRow(SHEETS.NOTIFIKASI, "id", data.id);
+  return jsonRes({ ok: true });
+}
+
+// ════════════════════════════════════════════════════════════════
+// NILAI
+// ════════════════════════════════════════════════════════════════
+function handleGetNilaiMhs(data) {
+  const { userId } = data;
+  const nilai = getSheetData(SHEETS.NILAI).find(n => n.mahasiswa_id === userId) || {};
+  // Hitung rata2 tugas & kuis otomatis
+  const submisi = getSheetData(SHEETS.TUGAS_SUBMIT).filter(s => s.mahasiswa_id === userId && s.nilai !== "");
+  const tugasRata = submisi.length ? (submisi.reduce((a, s) => a + Number(s.nilai), 0) / submisi.length).toFixed(1) : "-";
+  const kJawaban = getSheetData(SHEETS.KUIS_JAWABAN).filter(k => k.mahasiswa_id === userId && k.status === "dinilai");
+  const kuisRata = kJawaban.length ? (kJawaban.reduce((a, k) => a + Number(k.nilai), 0) / kJawaban.length).toFixed(1) : "-";
+  // Absensi
+  const absensi = getSheetData(SHEETS.ABSENSI).filter(a => a.mahasiswa_id === userId);
+  const hadir = absensi.filter(a => a.status === "hadir").length;
+  return jsonRes({ ok: true, nilai: { ...nilai, tugas_rata: tugasRata, kuis_rata: kuisRata, hadir, total_absensi: absensi.length } });
+}
+
+function handleUpdateNilai(data) {
+  const { mahasiswaId, uts, uas, nilaiAkhir } = data;
+  const huruf = getNilaiHuruf(Number(nilaiAkhir));
+  const existing = getSheetData(SHEETS.NILAI).find(n => n.mahasiswa_id === mahasiswaId);
+  if (existing) {
+    updateRow(SHEETS.NILAI, "mahasiswa_id", mahasiswaId, { uts, uas, nilai_akhir: nilaiAkhir, huruf, updated_at: now() });
+  } else {
+    appendRow(SHEETS.NILAI, [mahasiswaId, uts || "", uas || "", "", "", nilaiAkhir, huruf, now()]);
+  }
+  return jsonRes({ ok: true });
+}
+
+function handleGetAllMahasiswa() {
+  const mhs = getSheetData(SHEETS.MAHASISWA);
+  const nilai = getSheetData(SHEETS.NILAI);
+  const absensi = getSheetData(SHEETS.ABSENSI);
+  const enriched = mhs.map(m => {
+    const n = nilai.find(n => n.mahasiswa_id === m.id) || {};
+    const hadir = absensi.filter(a => a.mahasiswa_id === m.id && a.status === "hadir").length;
+    return { ...m, password: undefined, nilai_akhir: n.nilai_akhir || "", huruf: n.huruf || "", hadir };
+  });
+  return jsonRes({ ok: true, mahasiswa: enriched });
+}
+
+function handleDeleteMahasiswa(data) {
+  deleteRow(SHEETS.MAHASISWA, "id", data.id);
+  return jsonRes({ ok: true });
+}
+
+function handleUpdateProfile(data) {
+  const { userId, nama, nim, prodi, semester } = data;
+  updateRow(SHEETS.MAHASISWA, "id", userId, { nama, nim, prodi, semester });
+  return jsonRes({ ok: true });
+}
+
+// ════════════════════════════════════════════════════════════════
+// HELPERS — SPREADSHEET CRUD
+// ════════════════════════════════════════════════════════════════
+function getSheet(name) {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+}
+
+function getSheetData(name) {
+  const sh = getSheet(name);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const [headers, ...rows] = sh.getDataRange().getValues();
+  return rows.map(r => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = r[i] === undefined || r[i] === null ? "" : String(r[i]); });
+    return obj;
+  }).filter(r => Object.values(r).some(v => v !== ""));
+}
+
+function appendRow(name, vals) {
+  getSheet(name).appendRow(vals);
+}
+
+function updateRow(name, keyCol, keyVal, updates) {
+  const sh = getSheet(name);
+  const data = sh.getDataRange().getValues();
+  const headers = data[0];
+  const keyIdx = headers.indexOf(keyCol);
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][keyIdx]) === String(keyVal)) {
+      for (const [col, val] of Object.entries(updates)) {
+        const ci = headers.indexOf(col);
+        if (ci >= 0) sh.getRange(i + 1, ci + 1).setValue(val);
+      }
+      return;
+    }
+  }
+}
+
+function deleteRow(name, keyCol, keyVal) {
+  const sh = getSheet(name);
+  const data = sh.getDataRange().getValues();
+  const headers = data[0];
+  const keyIdx = headers.indexOf(keyCol);
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][keyIdx]) === String(keyVal)) { sh.deleteRow(i + 1); return; }
+  }
+}
+
+function deleteRowsWhere(name, keyCol, keyVal) {
+  const sh = getSheet(name);
+  const data = sh.getDataRange().getValues();
+  const headers = data[0];
+  const keyIdx = headers.indexOf(keyCol);
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][keyIdx]) === String(keyVal)) sh.deleteRow(i + 1);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════════════════════════════
+function uid() {
+  return Utilities.getUuid().replace(/-/g, "").substring(0, 16);
+}
+function now() {
+  return new Date().toISOString();
+}
+function jsonRes(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+function getNilaiHuruf(n) {
+  if (isNaN(n)) return "-";
+  return n >= 85 ? "A" : n >= 80 ? "A-" : n >= 75 ? "B+" : n >= 70 ? "B" : n >= 65 ? "B-" : n >= 60 ? "C+" : n >= 55 ? "C" : "D";
+}
