@@ -1,0 +1,19 @@
+Solusi biar mahasiswa tidak perlu input URL sendiri — hardcode URL langsung di HTML. Cari bagian ini di index.html:
+
+javascriptwindow.onload = () => {
+  GAS_URL = localStorage.getItem('ec_gas_url') || '';
+  if (GAS_URL) startLogin();
+  else document.getElementById('screen-setup').style.display = 'flex';
+};
+
+Ganti jadi:
+
+javascriptconst FIXED_URL = 'https://script.google.com/macros/s/xxx.../exec'; // ← paste URL deployment kamu
+
+window.onload = () => {
+  GAS_URL = FIXED_URL;
+  localStorage.setItem('ec_gas_url', FIXED_URL);
+  startLogin();
+};
+
+Dengan begitu halaman setup tidak akan muncul lagi, langsung ke login. Mahasiswa tinggal buka URL aplikasi dan langsung bisa daftar/login. 👍
