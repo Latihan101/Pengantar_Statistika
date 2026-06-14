@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1a237e" />
+  <title>EduCampus — Sistem Perkuliahan</title>
+  <link rel="stylesheet" href="css/main.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/dark-mode.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+</head>
+<body class="app-body" id="appBody">
+
+  <!-- SPLASH SCREEN -->
+  <div id="splashScreen" class="splash">
+    <div class="splash-content">
+      <div class="splash-logo">
+        <div class="logo-mark">
+          <i class="fas fa-graduation-cap"></i>
+        </div>
+        <h1 class="splash-title">EduCampus</h1>
+        <p class="splash-sub">Sistem Perkuliahan Digital</p>
+      </div>
+      <div class="splash-loader">
+        <div class="loader-bar"><div class="loader-fill"></div></div>
+        <p class="loader-text" id="loaderText">Memuat sistem...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOGIN SCREEN -->
+  <div id="loginScreen" class="screen hidden">
+    <div class="login-bg">
+      <div class="login-blob blob-1"></div>
+      <div class="login-blob blob-2"></div>
+    </div>
+    <div class="login-container">
+      <div class="login-brand">
+        <div class="logo-mark sm">
+          <i class="fas fa-graduation-cap"></i>
+        </div>
+        <span class="brand-name">EduCampus</span>
+      </div>
+      <div class="login-card">
+        <h2 class="login-title">Selamat Datang</h2>
+        <p class="login-desc">Masuk ke akun perkuliahan Anda</p>
+        <div id="loginAlert" class="alert hidden"></div>
+        <div class="form-group">
+          <label class="form-label">NIM / ID</label>
+          <div class="input-wrap">
+            <i class="fas fa-id-card input-icon"></i>
+            <input type="text" id="loginNim" class="form-input" placeholder="Masukkan NIM atau ID" autocomplete="username" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <div class="input-wrap">
+            <i class="fas fa-lock input-icon"></i>
+            <input type="password" id="loginPassword" class="form-input" placeholder="Masukkan password" autocomplete="current-password" />
+            <button type="button" class="input-toggle" id="togglePassword">
+              <i class="fas fa-eye"></i>
+            </button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label class="checkbox-label">
+            <input type="checkbox" id="rememberMe" />
+            <span class="checkmark"></span>
+            Ingat saya
+          </label>
+          <button class="link-btn" id="forgotBtn">Lupa password?</button>
+        </div>
+        <button class="btn btn-primary btn-full" id="loginBtn">
+          <span class="btn-text">Masuk</span>
+          <i class="fas fa-arrow-right btn-icon"></i>
+        </button>
+      </div>
+      <p class="login-footer">© 2025 EduCampus · Sistem Perkuliahan Digital</p>
+    </div>
+  </div>
+
+  <!-- MAIN APP -->
+  <div id="mainApp" class="app hidden">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-mark xs"><i class="fas fa-graduation-cap"></i></div>
+        <span class="sidebar-brand">EduCampus</span>
+        <button class="sidebar-close" id="sidebarClose"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="sidebar-user">
+        <div class="user-avatar" id="sidebarAvatar">A</div>
+        <div class="user-info">
+          <p class="user-name" id="sidebarName">Nama Pengguna</p>
+          <span class="user-role-badge" id="sidebarRole">Mahasiswa</span>
+        </div>
+      </div>
+      <nav class="sidebar-nav" id="sidebarNav">
+        <!-- Injected by JS based on role -->
+      </nav>
+      <div class="sidebar-footer">
+        <button class="sidebar-item danger" id="logoutBtn">
+          <i class="fas fa-sign-out-alt"></i>
+          <span>Keluar</span>
+        </button>
+        <button class="sidebar-item" id="darkModeToggle">
+          <i class="fas fa-moon"></i>
+          <span>Mode Gelap</span>
+          <div class="toggle-pill" id="darkTogglePill"></div>
+        </button>
+      </div>
+    </aside>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <button class="topbar-menu" id="menuBtn"><i class="fas fa-bars"></i></button>
+      <h1 class="topbar-title" id="pageTitle">Dashboard</h1>
+      <div class="topbar-actions">
+        <button class="topbar-btn notif-btn" id="notifBtn">
+          <i class="fas fa-bell"></i>
+          <span class="notif-badge hidden" id="notifBadge">0</span>
+        </button>
+        <div class="topbar-avatar" id="topbarAvatar">A</div>
+      </div>
+    </header>
+
+    <!-- NOTIFICATION PANEL -->
+    <div class="notif-panel hidden" id="notifPanel">
+      <div class="notif-header">
+        <h3>Notifikasi</h3>
+        <button class="link-btn" id="markAllRead">Tandai semua dibaca</button>
+      </div>
+      <div class="notif-list" id="notifList">
+        <div class="notif-empty"><i class="fas fa-bell-slash"></i><p>Belum ada notifikasi</p></div>
+      </div>
+    </div>
+
+    <!-- PAGE CONTENT -->
+    <main class="page-content" id="pageContent">
+      <!-- Pages are injected here by JS -->
+    </main>
+
+  </div>
+
+  <!-- MODAL -->
+  <div class="modal-overlay hidden" id="modalOverlay">
+    <div class="modal" id="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modalTitle">Modal</h3>
+        <button class="modal-close" id="modalClose"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-footer" id="modalFooter"></div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- QR SCANNER (for attendance) -->
+  <div class="qr-overlay hidden" id="qrOverlay">
+    <div class="qr-modal">
+      <div class="qr-header">
+        <h3>Scan QR Absensi</h3>
+        <button id="qrClose"><i class="fas fa-times"></i></button>
+      </div>
+      <div id="qr-reader" class="qr-reader"></div>
+      <p class="qr-hint">Arahkan kamera ke QR Code yang ditampilkan dosen</p>
+    </div>
+  </div>
+
+  <!-- SCRIPTS -->
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/router.js"></script>
+  <script src="js/components.js"></script>
+
+  <!-- PAGE MODULES -->
+  <script src="js/pages/dashboard.js"></script>
+  <script src="js/pages/courses.js"></script>
+  <script src="js/pages/materials.js"></script>
+  <script src="js/pages/assignments.js"></script>
+  <script src="js/pages/quizzes.js"></script>
+  <script src="js/pages/grades.js"></script>
+  <script src="js/pages/attendance.js"></script>
+  <script src="js/pages/activity.js"></script>
+  <script src="js/pages/profile.js"></script>
+  <script src="js/pages/forum.js"></script>
+  <script src="js/pages/announcements.js"></script>
+  <script src="js/pages/calendar.js"></script>
+  <script src="js/pages/admin.js"></script>
+  <script src="js/notifications.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
