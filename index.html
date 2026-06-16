@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>EduCampus • Firebase</title>
+  <title>EduCampus</title>
   <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
   <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -13,7 +14,6 @@
     import { getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, collection, query, where, orderBy, serverTimestamp, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
     import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
-    // ── GANTI dengan konfigurasi Firebase kamu ────────────────────
     const firebaseConfig = {
       apiKey: "AIzaSyCKqz6WFohckcvdFYt0YSeXP6GyGvFkHq0",
       authDomain: "edu-campus-6aa80.firebaseapp.com",
@@ -31,18 +31,20 @@
     window.db = db; window.auth = auth; window.storage = storage;
 
     let user = null, config = {}, _prt = null;
-    let _unsubNotif = null, _unsubAbsensi = null;
+    let _unsubNotif = null;
     let authRole = 'mahasiswa', showReg = false;
     let _quill = null;
 
     // ── Auth observer ─────────────────────────────────────────
     onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const snap = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (snap.exists()) {
-          user = { id: firebaseUser.uid, ...snap.data() };
-          startApp(user);
-        } else { await signOut(auth); showLogin(); }
+        try {
+          const snap = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (snap.exists()) {
+            user = { id: firebaseUser.uid, ...snap.data() };
+            startApp(user);
+          } else { await signOut(auth); showLogin(); }
+        } catch(e) { console.error('Auth error:', e); showLogin(); }
       } else { user = null; showLogin(); }
     });
 
@@ -54,10 +56,10 @@
     async function startApp(u) {
       user = u;
       document.getElementById('screen-login').style.display = 'none';
-      const initials = (u.nama||'').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+      const initials = (u.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
       document.getElementById('sbAv').textContent = initials;
       document.getElementById('sbName').textContent = u.nama;
-      document.getElementById('sbRole').textContent = u.role === 'dosen' ? '👨‍🏫 Dosen' : '🎓 NIM ' + (u.nim||'-');
+      document.getElementById('sbRole').textContent = u.role === 'dosen' ? 'Dosen' : 'NIM ' + (u.nim||'-');
       try { const s = await getDoc(doc(db,'config','appConfig')); if(s.exists()) config = s.data(); } catch(e) {}
       buildNav();
       document.getElementById('app').style.display = 'flex';
@@ -66,30 +68,80 @@
 
     function buildNav() {
       const dsn = [
-        {p:'dashboard',i:'🏠',l:'Dashboard'},{p:'pertemuan',i:'📅',l:'Pertemuan'},
-        {p:'mahasiswa',i:'👥',l:'Mahasiswa'},{p:'nilai_dsn',i:'✏️',l:'Input Nilai'},
-        {p:'notifikasi',i:'🔔',l:'Notifikasi'},{p:'profil',i:'👤',l:'Profil'},
+        {p:'dashboard',i:'grid',l:'Dashboard'},
+        {p:'pertemuan',i:'calendar',l:'Pertemuan'},
+        {p:'mahasiswa',i:'users',l:'Mahasiswa'},
+        {p:'nilai_dsn',i:'edit',l:'Input Nilai'},
+        {p:'notifikasi',i:'bell',l:'Notifikasi'},
+        {p:'profil',i:'user',l:'Profil'},
       ];
       const mhs = [
-        {p:'dashboard',i:'🏠',l:'Dashboard'},{p:'pertemuan',i:'📅',l:'Pertemuan'},
-        {p:'absensi_mhs',i:'✋',l:'Absensi'},{p:'nilai_mhs',i:'📊',l:'Nilai'},
-        {p:'notifikasi',i:'🔔',l:'Notif'},{p:'profil',i:'👤',l:'Profil'},
+        {p:'dashboard',i:'grid',l:'Dashboard'},
+        {p:'pertemuan',i:'calendar',l:'Pertemuan'},
+        {p:'absensi_mhs',i:'check-square',l:'Absensi'},
+        {p:'nilai_mhs',i:'bar-chart-2',l:'Nilai'},
+        {p:'notifikasi',i:'bell',l:'Notifikasi'},
+        {p:'profil',i:'user',l:'Profil'},
       ];
       const nav = user.role === 'dosen' ? dsn : mhs;
+
       document.getElementById('navMenu').innerHTML =
-        '<div class="nav-sec">Menu</div>' +
-        nav.map(n=>`<div class="nav-item" id="nav-${n.p}" onclick="go('${n.p}');closeSidebar()"><span class="nav-ico">${n.i}</span>${n.l}</div>`).join('') +
-        `<div class="nav-item" onclick="doLogout()"><span class="nav-ico">🚪</span>Keluar</div>`;
-      const bnKeys = user.role==='dosen' ? ['dashboard','pertemuan','nilai_dsn','notifikasi'] : ['dashboard','pertemuan','absensi_mhs','nilai_mhs'];
+        nav.map(n=>`
+          <div class="nav-item" id="nav-${n.p}" onclick="go('${n.p}');closeSidebar()">
+            <span class="nav-ico">${svgIcon(n.i)}</span>
+            <span class="nav-lbl">${n.l}</span>
+          </div>`).join('') +
+        `<div class="nav-item nav-logout" onclick="doLogout()">
+          <span class="nav-ico">${svgIcon('log-out')}</span>
+          <span class="nav-lbl">Keluar</span>
+        </div>`;
+
+      const bnKeys = user.role==='dosen'
+        ? ['dashboard','pertemuan','nilai_dsn','notifikasi']
+        : ['dashboard','pertemuan','absensi_mhs','nilai_mhs'];
       const bnItems = nav.filter(n=>bnKeys.includes(n.p));
       document.getElementById('bottomNav').innerHTML =
-        `<div class="bn-items">${bnItems.map(n=>`<div class="bn-item" id="bn-${n.p}" onclick="go('${n.p}')"><div class="bn-ico">${n.i}</div><div>${n.l}</div></div>`).join('')}<div class="bn-item" onclick="doLogout()"><div class="bn-ico">🚪</div><div>Keluar</div></div></div>`;
+        `<div class="bn-items">
+          ${bnItems.map(n=>`
+            <div class="bn-item" id="bn-${n.p}" onclick="go('${n.p}')">
+              <div class="bn-ico">${svgIcon(n.i)}</div>
+              <div>${n.l}</div>
+            </div>`).join('')}
+          <div class="bn-item" onclick="doLogout()">
+            <div class="bn-ico">${svgIcon('log-out')}</div>
+            <div>Keluar</div>
+          </div>
+        </div>`;
     }
 
+    function svgIcon(name) {
+      const icons = {
+        'grid': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`,
+        'calendar': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,
+        'users': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+        'edit': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+        'bell': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
+        'user': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+        'check-square': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
+        'bar-chart-2': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+        'log-out': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`,
+        'upload': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>`,
+        'file-text': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
+        'trash': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`,
+        'download': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>`,
+        'book-open': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
+        'arrow-left': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`,
+        'menu': `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`,
+        'plus': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+      };
+      return icons[name] || '';
+    }
+    window.svgIcon = svgIcon;
+
     const TITLES = {
-      dashboard:'Dashboard',pertemuan:'Pertemuan',mahasiswa:'Data Mahasiswa',
-      nilai_dsn:'Input Nilai',notifikasi:'Notifikasi',profil:'Profil Saya',
-      absensi_mhs:'Absensi Saya',nilai_mhs:'Nilai Saya',
+      dashboard:'Dashboard', pertemuan:'Pertemuan', mahasiswa:'Data Mahasiswa',
+      nilai_dsn:'Input Nilai', notifikasi:'Notifikasi', profil:'Profil Saya',
+      absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya',
     };
 
     window.go = function(page, params={}) {
@@ -99,12 +151,14 @@
       document.getElementById('bn-'+page)?.classList.add('on');
       document.getElementById('pageTitle').textContent = TITLES[page]||page;
       document.getElementById('topActions').innerHTML = '';
-      setContent('<div class="loading">⏳ Memuat data...</div>');
-      const map = { dashboard:renderDashboard, pertemuan:renderPertemuan, mahasiswa:renderMahasiswa,
+      setContent('<div class="loading"><div class="spin"></div><span>Memuat data...</span></div>');
+      const map = {
+        dashboard:renderDashboard, pertemuan:renderPertemuan, mahasiswa:renderMahasiswa,
         nilai_dsn:renderNilaiDsn, notifikasi:renderNotifikasi, profil:renderProfil,
-        absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs };
+        absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs
+      };
       if (map[page]) map[page](params);
-      else setContent('<div class="empty"><div class="emo">🚧</div><h3>Segera Hadir</h3></div>');
+      else setContent('<div class="empty"><div class="empty-ico">🚧</div><h3>Segera Hadir</h3><p>Fitur ini sedang dalam pengembangan.</p></div>');
       document.getElementById('content').scrollTop = 0;
     };
 
@@ -122,66 +176,151 @@
       if(r==='dosen'&&showReg){showReg=false;document.getElementById('fLogin').style.display='block';document.getElementById('fReg').style.display='none';}
       clearMsg();
     };
-    window.toggleReg=()=>{if(authRole==='dosen')return;showReg=!showReg;document.getElementById('fLogin').style.display=showReg?'none':'block';document.getElementById('fReg').style.display=showReg?'block':'none';clearMsg();};
-    function clearMsg(){['authErr','authOk'].forEach(id=>{const e=document.getElementById(id);e.style.display='none';});}
+    window.toggleReg=()=>{ if(authRole==='dosen')return; showReg=!showReg; document.getElementById('fLogin').style.display=showReg?'none':'block'; document.getElementById('fReg').style.display=showReg?'block':'none'; clearMsg(); };
+    function clearMsg(){ ['authErr','authOk'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; }); }
     window.doLogin=async()=>{
-      clearMsg();const email=document.getElementById('lEmail').value.trim(),pw=document.getElementById('lPass').value;
-      if(!email||!pw)return showErr('Isi email dan password');
-      try{await signInWithEmailAndPassword(auth,email,pw);}catch(e){showErr('Login gagal: '+e.message);}
+      clearMsg();
+      const email=document.getElementById('lEmail').value.trim(), pw=document.getElementById('lPass').value;
+      if(!email||!pw) return showErr('Isi email dan password');
+      const btn=document.getElementById('loginBtn'); btn.disabled=true; btn.textContent='Masuk...';
+      try { await signInWithEmailAndPassword(auth,email,pw); }
+      catch(e) { showErr('Login gagal: '+(e.code==='auth/invalid-credential'?'Email atau password salah':e.message)); btn.disabled=false; btn.textContent='Masuk'; }
     };
     window.doRegister=async()=>{
-      clearMsg();const nama=v('rNama'),nim=v('rNim'),email=v('rEmail'),pw=v('rPass'),sem=v('rSem'),prodi=v('rProdi');
-      if(!nama||!nim||!email||!pw)return showErr('Semua field wajib diisi');
-      if(pw.length<6)return showErr('Password minimal 6 karakter');
-      try{
+      clearMsg();
+      const nama=v('rNama'),nim=v('rNim'),email=v('rEmail'),pw=v('rPass'),sem=v('rSem'),prodi=v('rProdi');
+      if(!nama||!nim||!email||!pw) return showErr('Semua field wajib diisi');
+      if(pw.length<6) return showErr('Password minimal 6 karakter');
+      try {
         const cred=await createUserWithEmailAndPassword(auth,email,pw);
         await setDoc(doc(db,'users',cred.user.uid),{nama,nim,email,role:'mahasiswa',semester:parseInt(sem)||1,prodi,createdAt:new Date()});
-        showOk('Akun berhasil dibuat! Silakan login.');toggleReg();
-      }catch(e){showErr('Gagal: '+e.message);}
+        showOk('Akun berhasil dibuat! Silakan login.'); toggleReg();
+      } catch(e) { showErr('Gagal: '+e.message); }
     };
-    window.doLogout=async()=>{if(_unsubNotif){_unsubNotif();_unsubNotif=null;}await signOut(auth);};
-    function showErr(m){const e=document.getElementById('authErr');e.textContent=m;e.style.display='block';}
-    function showOk(m){const e=document.getElementById('authOk');e.textContent=m;e.style.display='block';}
+    window.doLogout=async()=>{ if(_unsubNotif){_unsubNotif();_unsubNotif=null;} await signOut(auth); };
+    function showErr(m){ const e=document.getElementById('authErr'); e.textContent=m; e.style.display='flex'; }
+    function showOk(m){ const e=document.getElementById('authOk'); e.textContent=m; e.style.display='flex'; }
 
     // ── DASHBOARD ─────────────────────────────────────────────
     async function renderDashboard(){
       const isDsn=user.role==='dosen';
+      const greeting = getGreeting();
       if(isDsn){
-        const mhsSnap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
-        const prtSnap=await getDocs(collection(db,'pertemuan'));
+        const [mhsSnap, prtSnap] = await Promise.all([
+          getDocs(query(collection(db,'users'),where('role','==','mahasiswa'))),
+          getDocs(collection(db,'pertemuan'))
+        ]);
         setContent(`
+          <div class="dash-hero">
+            <div class="dash-greet">${greeting}</div>
+            <div class="dash-name">${user.nama}</div>
+            <div class="dash-sub">${config.NAMA_MATKUL||'EduCampus'} · ${config.SKS||0} SKS</div>
+          </div>
           <div class="stats-grid">
-            <div class="stat-card"><div class="stat-ico" style="background:var(--pl)">👥</div><div class="stat-lbl">Mahasiswa</div><div class="stat-val">${mhsSnap.size}</div><div class="stat-sub">Terdaftar</div></div>
-            <div class="stat-card"><div class="stat-ico" style="background:#ecfdf5">📅</div><div class="stat-lbl">Pertemuan</div><div class="stat-val">${prtSnap.size}</div><div class="stat-sub">dari 16</div></div>
-            <div class="stat-card"><div class="stat-ico" style="background:var(--ab)">📚</div><div class="stat-lbl">Matkul</div><div class="stat-val" style="font-size:13px">${config.NAMA_MATKUL||'-'}</div><div class="stat-sub">${config.SKS||0} SKS</div></div>
-            <div class="stat-card"><div class="stat-ico" style="background:#eff6ff">🏫</div><div class="stat-lbl">Jadwal</div><div class="stat-val" style="font-size:12px">${config.JADWAL||'-'}</div><div class="stat-sub">${config.RUANG||''}</div></div>
+            <div class="stat-card" style="--c:#4f46e5">
+              <div class="stat-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('users')}</div>
+              <div class="stat-val">${mhsSnap.size}</div>
+              <div class="stat-lbl">Mahasiswa</div>
+            </div>
+            <div class="stat-card" style="--c:#059669">
+              <div class="stat-ico" style="background:#ecfdf5;color:#059669">${svgIcon('calendar')}</div>
+              <div class="stat-val">${prtSnap.size}<span style="font-size:14px;font-weight:500;color:var(--muted)">/16</span></div>
+              <div class="stat-lbl">Pertemuan</div>
+            </div>
+            <div class="stat-card" style="--c:#d97706">
+              <div class="stat-ico" style="background:#fffbeb;color:#d97706">${svgIcon('bell')}</div>
+              <div class="stat-val" style="font-size:14px">${config.JADWAL||'-'}</div>
+              <div class="stat-lbl">Jadwal</div>
+            </div>
+            <div class="stat-card" style="--c:#7c3aed">
+              <div class="stat-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('edit')}</div>
+              <div class="stat-val" style="font-size:13px">${config.RUANG||'-'}</div>
+              <div class="stat-lbl">Ruang</div>
+            </div>
+          </div>
+          <div class="quick-actions">
+            <div class="section-title">Aksi Cepat</div>
+            <div class="qa-grid">
+              <div class="qa-card" onclick="go('pertemuan')"><div class="qa-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('calendar')}</div><div>Kelola Pertemuan</div></div>
+              <div class="qa-card" onclick="go('mahasiswa')"><div class="qa-ico" style="background:#ecfdf5;color:#059669">${svgIcon('users')}</div><div>Data Mahasiswa</div></div>
+              <div class="qa-card" onclick="go('nilai_dsn')"><div class="qa-ico" style="background:#fffbeb;color:#d97706">${svgIcon('edit')}</div><div>Input Nilai</div></div>
+              <div class="qa-card" onclick="go('notifikasi')"><div class="qa-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('bell')}</div><div>Notifikasi</div></div>
+            </div>
           </div>`);
       } else {
-        const absSnap=await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id)));
+        const [absSnap, nilaiSnap] = await Promise.all([
+          getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id))),
+          getDoc(doc(db,'nilai_akhir',user.id))
+        ]);
         const hadir=absSnap.docs.filter(d=>d.data().status==='hadir').length;
-        const nilaiSnap=await getDoc(doc(db,'nilai_akhir',user.id));
         const n=nilaiSnap.exists()?nilaiSnap.data():{};
         setContent(`
+          <div class="dash-hero">
+            <div class="dash-greet">${greeting}</div>
+            <div class="dash-name">${user.nama}</div>
+            <div class="dash-sub">NIM ${user.nim||'-'} · ${user.prodi||''}</div>
+          </div>
           <div class="stats-grid">
-            <div class="stat-card"><div class="stat-ico" style="background:var(--pl)">✋</div><div class="stat-lbl">Hadir</div><div class="stat-val">${hadir}/${absSnap.size}</div></div>
-            <div class="stat-card"><div class="stat-ico" style="background:#ecfdf5">📝</div><div class="stat-lbl">Tugas</div><div class="stat-val">-</div></div>
-            <div class="stat-card"><div class="stat-ico" style="background:var(--ab)">🏆</div><div class="stat-lbl">Nilai</div><div class="stat-val">${n.nilaiAkhir||'-'}</div></div>
-            <div class="stat-card"><div class="stat-ico" style="background:#eff6ff">📅</div><div class="stat-lbl">Materi</div><div class="stat-val">16</div></div>
+            <div class="stat-card" style="--c:#4f46e5">
+              <div class="stat-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('check-square')}</div>
+              <div class="stat-val">${hadir}<span style="font-size:14px;font-weight:500;color:var(--muted)">/${absSnap.size}</span></div>
+              <div class="stat-lbl">Hadir</div>
+            </div>
+            <div class="stat-card" style="--c:#059669">
+              <div class="stat-ico" style="background:#ecfdf5;color:#059669">${svgIcon('bar-chart-2')}</div>
+              <div class="stat-val">${n.nilaiAkhir||'-'}</div>
+              <div class="stat-lbl">Nilai Akhir</div>
+            </div>
+            <div class="stat-card" style="--c:#d97706">
+              <div class="stat-ico" style="background:#fffbeb;color:#d97706">${svgIcon('book-open')}</div>
+              <div class="stat-val">16</div>
+              <div class="stat-lbl">Total Materi</div>
+            </div>
+            <div class="stat-card" style="--c:#7c3aed">
+              <div class="stat-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('edit')}</div>
+              <div class="stat-val">-</div>
+              <div class="stat-lbl">Tugas</div>
+            </div>
+          </div>
+          <div class="quick-actions">
+            <div class="section-title">Aksi Cepat</div>
+            <div class="qa-grid">
+              <div class="qa-card" onclick="go('pertemuan')"><div class="qa-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('calendar')}</div><div>Materi Kuliah</div></div>
+              <div class="qa-card" onclick="go('absensi_mhs')"><div class="qa-ico" style="background:#ecfdf5;color:#059669">${svgIcon('check-square')}</div><div>Absensi Saya</div></div>
+              <div class="qa-card" onclick="go('nilai_mhs')"><div class="qa-ico" style="background:#fffbeb;color:#d97706">${svgIcon('bar-chart-2')}</div><div>Nilai Saya</div></div>
+              <div class="qa-card" onclick="go('notifikasi')"><div class="qa-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('bell')}</div><div>Notifikasi</div></div>
+            </div>
           </div>`);
       }
     }
 
+    function getGreeting(){
+      const h=new Date().getHours();
+      if(h<11)return'Selamat Pagi 🌤';
+      if(h<15)return'Selamat Siang ☀️';
+      if(h<18)return'Selamat Sore 🌇';
+      return'Selamat Malam 🌙';
+    }
+
     // ── PERTEMUAN ────────────────────────────────────────────
     async function renderPertemuan(){
+      const isDsn = user.role === 'dosen';
       const snap=await getDocs(collection(db,'pertemuan'));
       const prts=[];snap.forEach(d=>prts.push({id:d.id,...d.data()}));
       prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
-      if(prts.length===0){setContent('<div class="empty"><div class="emo">📅</div><h3>Belum ada pertemuan</h3></div>');return;}
-      setContent(`<div class="prt-grid">${prts.map(p=>`
-        <div class="prt-card" onclick="bukaPrt('${p.id}')">
-          <div class="prt-badge">Prt ${p.pertemuanKe}</div>
-          <div class="prt-topik">${p.topik||'—'}</div>
-        </div>`).join('')}</div>`);
+      if(prts.length===0){
+        setContent(`<div class="empty"><div class="empty-ico">📅</div><h3>Belum ada pertemuan</h3><p>${isDsn?'Tambahkan pertemuan melalui Firebase Console.':'Belum ada materi yang tersedia.'}</p></div>`);
+        return;
+      }
+      setContent(`
+        <div class="section-title" style="margin-bottom:12px">${prts.length} Pertemuan tersedia</div>
+        <div class="prt-grid">${prts.map(p=>`
+          <div class="prt-card" onclick="bukaPrt('${p.id}')">
+            <div class="prt-num">Pertemuan ${p.pertemuanKe}</div>
+            <div class="prt-topik">${p.topik||'—'}</div>
+            <div class="prt-arrow">${svgIcon('arrow-left')}</div>
+          </div>`).join('')}
+        </div>`);
     }
 
     window.bukaPrt=async(prtId)=>{
@@ -190,114 +329,134 @@
     };
 
     function renderPrtDetail(p,tab){
-      const tabs=['materi','tugas','kuis','absensi'];
+      const tabs=[
+        {k:'materi',l:'Materi'},
+        {k:'tugas',l:'Tugas'},
+        {k:'kuis',l:'Kuis'},
+        {k:'absensi',l:'Absensi'},
+      ];
       setContent(`
         <div class="prt-detail-header">
-          <button class="btn-back" onclick="go('pertemuan')">← Kembali</button>
-          <h2>Pertemuan ${p.pertemuanKe}: ${p.topik||''}</h2>
+          <button class="btn-back" onclick="go('pertemuan')">${svgIcon('arrow-left')} Kembali</button>
+          <div>
+            <div class="prt-detail-badge">Pertemuan ${p.pertemuanKe}</div>
+            <div class="prt-detail-title">${p.topik||''}</div>
+          </div>
         </div>
-        <div class="dtabs">${tabs.map(t=>`<div class="dtab${t===tab?' on':''}" onclick="loadTab('${t}')">${t.charAt(0).toUpperCase()+t.slice(1)}</div>`).join('')}</div>
-        <div id="tabContent"><div class="loading">⏳</div></div>`);
+        <div class="dtabs">${tabs.map(t=>`<div class="dtab${t.k===tab?' on':''}" data-tab="${t.k}" onclick="loadTab('${t.k}')">${t.l}</div>`).join('')}</div>
+        <div id="tabContent"><div class="loading"><div class="spin"></div><span>Memuat...</span></div></div>`);
       loadTab(tab);
     }
 
     window.loadTab=async(tab)=>{
       if(!_prt)return;
-      // update active tab UI
-      document.querySelectorAll('.dtab').forEach(t=>t.classList.remove('on'));
-      document.querySelectorAll('.dtab').forEach(t=>{if(t.textContent.toLowerCase()===tab)t.classList.add('on');});
-
+      document.querySelectorAll('.dtab').forEach(t=>t.classList.toggle('on', t.dataset.tab===tab));
+      const tc=document.getElementById('tabContent');
+      if(!tc)return;
       if(tab==='materi') await renderMateriTab();
-      else if(tab==='tugas') document.getElementById('tabContent').innerHTML='<div class="empty"><div class="emo">📝</div><h3>Fitur Tugas</h3><p>Segera hadir</p></div>';
-      else if(tab==='kuis') document.getElementById('tabContent').innerHTML='<div class="empty"><div class="emo">❓</div><h3>Fitur Kuis</h3><p>Segera hadir</p></div>';
-      else if(tab==='absensi') document.getElementById('tabContent').innerHTML='<div class="empty"><div class="emo">✋</div><h3>Fitur Absensi</h3><p>Segera hadir</p></div>';
+      else {
+        const emp={tugas:{i:'📝',t:'Tugas'},kuis:{i:'❓',t:'Kuis'},absensi:{i:'✋',t:'Absensi'}};
+        const e=emp[tab]||{i:'🚧',t:tab};
+        tc.innerHTML=`<div class="empty"><div class="empty-ico">${e.i}</div><h3>${e.t}</h3><p>Fitur ini segera hadir.</p></div>`;
+      }
     };
 
-    // ── MATERI TAB ───────────────────────────────────────────
+    // ── MATERI TAB (FIXED) ───────────────────────────────────
     async function renderMateriTab(){
-      const isDsn=user.role==='dosen';
-      const snap=await getDocs(collection(db,'pertemuan',_prt.id,'materi'));
-      const items=[];snap.forEach(d=>items.push({id:d.id,...d.data()}));
-      items.sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));
+      const isDsn = user.role === 'dosen';
+      const tc = document.getElementById('tabContent');
+      if(!tc) return;
 
-      let html=`<div id="materi-list">`;
-      if(items.length===0){
-        html+=`<div class="empty"><div class="emo">📄</div><h3>Belum ada materi</h3>${isDsn?'<p>Tambahkan materi di bawah.</p>':''}</div>`;
+      let items = [];
+      try {
+        const snap = await getDocs(collection(db,'pertemuan',_prt.id,'materi'));
+        snap.forEach(d => items.push({id:d.id,...d.data()}));
+        items.sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));
+      } catch(e) {
+        tc.innerHTML=`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat</h3><p>${e.message}</p></div>`;
+        return;
+      }
+
+      let html = `<div class="materi-list" id="materi-list">`;
+
+      if(items.length === 0){
+        html += `<div class="empty"><div class="empty-ico">📄</div><h3>Belum ada materi</h3><p>${isDsn?'Tambahkan materi di bawah.':'Dosen belum menambahkan materi.'}</p></div>`;
       } else {
         items.forEach(m=>{
           if(m.tipe==='file'){
-            const icon=getFileIcon(m.namaFile||'');
-            html+=`<div class="materi-item">
-              <div class="materi-icon">${icon}</div>
-              <div class="materi-info">
-                <div class="materi-judul">${m.judul}</div>
-                <div class="materi-meta">${m.namaFile||''} • ${m.ukuran||''}</div>
-              </div>
-              <div class="materi-actions">
-                <a href="${m.fileUrl}" target="_blank" class="btn-dl">⬇ Unduh</a>
-                ${isDsn?`<button class="btn-del-materi" onclick="hapusMateri('${m.id}','${m.filePath||''}')">🗑</button>`:''}
-              </div>
-            </div>`;
+            const icon = getFileIcon(m.namaFile||'');
+            html += `
+              <div class="materi-item">
+                <div class="materi-icon-wrap">${icon}</div>
+                <div class="materi-info">
+                  <div class="materi-judul">${m.judul}</div>
+                  <div class="materi-meta">${m.namaFile||''} ${m.ukuran?'· '+m.ukuran:''}</div>
+                </div>
+                <div class="materi-actions">
+                  <a href="${m.fileUrl}" target="_blank" class="btn-action btn-primary">${svgIcon('download')} Unduh</a>
+                  ${isDsn?`<button class="btn-action btn-danger" onclick="hapusMateri('${m.id}','${m.filePath||''}')">${svgIcon('trash')}</button>`:''}
+                </div>
+              </div>`;
           } else if(m.tipe==='teks'){
-            html+=`<div class="materi-item materi-teks-item">
-              <div class="materi-icon">📝</div>
-              <div class="materi-info">
-                <div class="materi-judul">${m.judul}</div>
-                <div class="materi-meta">Konten teks</div>
-              </div>
-              <div class="materi-actions">
-                <button class="btn-dl" onclick="bacaMateriTeks('${m.id}')">📖 Baca</button>
-                ${isDsn?`<button class="btn-dl" style="background:var(--a)" onclick="editMateriTeks('${m.id}')">✏️ Edit</button><button class="btn-del-materi" onclick="hapusMateri('${m.id}','')">🗑</button>`:''}
-              </div>
-            </div>`;
+            html += `
+              <div class="materi-item">
+                <div class="materi-icon-wrap">📝</div>
+                <div class="materi-info">
+                  <div class="materi-judul">${m.judul}</div>
+                  <div class="materi-meta">Konten teks</div>
+                </div>
+                <div class="materi-actions">
+                  <button class="btn-action btn-primary" onclick="bacaMateriTeks('${m.id}')">${svgIcon('book-open')} Baca</button>
+                  ${isDsn?`
+                    <button class="btn-action btn-secondary" onclick="editMateriTeks('${m.id}')">${svgIcon('edit')} Edit</button>
+                    <button class="btn-action btn-danger" onclick="hapusMateri('${m.id}','')">${svgIcon('trash')}</button>`:''}
+                </div>
+              </div>`;
           }
         });
       }
-      html+='</div>';
+      html += `</div>`;
 
       if(isDsn){
-        html+=`
-        <div class="card" style="margin-top:16px">
-          <div class="card-hd"><div class="card-title">➕ Tambah Materi</div></div>
-          <div style="padding:16px">
+        html += `
+          <div class="add-materi-card">
+            <div class="add-materi-title">${svgIcon('plus')} Tambah Materi</div>
             <div class="tipe-tabs">
-              <div class="tipe-tab on" id="tipeFile" onclick="switchTipe('file')">📎 Upload File</div>
-              <div class="tipe-tab" id="tipeTeks" onclick="switchTipe('teks')">📝 Konten Teks</div>
+              <div class="tipe-tab on" id="tipeFile" onclick="switchTipe('file')">${svgIcon('upload')} Upload File</div>
+              <div class="tipe-tab" id="tipeTeks" onclick="switchTipe('teks')">${svgIcon('file-text')} Konten Teks</div>
             </div>
 
             <div id="formFile">
-              <input class="inp" id="judulFile" placeholder="Judul materi">
+              <input class="inp" id="judulFile" placeholder="Judul materi...">
               <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
-                <div class="upload-ico">📁</div>
+                <div class="upload-ico">${svgIcon('upload')}</div>
                 <div class="upload-txt">Klik untuk pilih file</div>
                 <div class="upload-sub">PDF, PPT, Gambar, Video — semua format didukung</div>
                 <input type="file" id="fileInput" style="display:none" accept="*/*" onchange="previewFile(this)">
               </div>
-              <div id="filePreview" style="display:none" class="file-preview"></div>
-              <div id="uploadProgress" style="display:none">
+              <div id="filePreview" style="display:none" class="file-preview-box"></div>
+              <div id="uploadProgress" style="display:none" class="upload-progress">
                 <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
                 <div class="progress-txt" id="progressTxt">Mengupload...</div>
               </div>
-              <button class="btn-full" style="margin-top:12px" onclick="uploadMateriFile()">Upload & Simpan</button>
+              <button class="btn-submit" id="submitFileBtn" onclick="uploadMateriFile()">Upload & Simpan</button>
             </div>
 
             <div id="formTeks" style="display:none">
-              <input class="inp" id="judulTeks" placeholder="Judul materi">
-              <div id="quillEditor" style="height:300px;border-radius:8px;overflow:hidden"></div>
-              <button class="btn-full" style="margin-top:12px" onclick="simpanMateriTeks()">Simpan Materi</button>
+              <input class="inp" id="judulTeks" placeholder="Judul materi...">
+              <div id="quillEditor" style="height:280px"></div>
+              <button class="btn-submit" style="margin-top:12px" onclick="simpanMateriTeks()">Simpan Materi</button>
             </div>
-          </div>
-        </div>`;
+          </div>`;
       }
 
-      document.getElementById('tabContent').innerHTML=html;
+      tc.innerHTML = html;
 
       if(isDsn){
-        // Init Quill
-        _quill=new Quill('#quillEditor',{
-          theme:'snow',
-          placeholder:'Tulis konten materi di sini...',
-          modules:{toolbar:[
+        _quill = new Quill('#quillEditor', {
+          theme: 'snow',
+          placeholder: 'Tulis konten materi di sini...',
+          modules: { toolbar: [
             [{header:[1,2,3,false]}],
             ['bold','italic','underline','strike'],
             [{color:[]},{background:[]}],
@@ -312,11 +471,13 @@
 
     function getFileIcon(nama){
       const ext=(nama.split('.').pop()||'').toLowerCase();
-      if(['pdf'].includes(ext)) return '📄';
+      if(ext==='pdf') return '📄';
       if(['ppt','pptx'].includes(ext)) return '📊';
-      if(['jpg','jpeg','png','gif','webp'].includes(ext)) return '🖼';
+      if(['jpg','jpeg','png','gif','webp'].includes(ext)) return '🖼️';
       if(['mp4','mov','avi','mkv'].includes(ext)) return '🎬';
       if(['doc','docx'].includes(ext)) return '📝';
+      if(['xls','xlsx'].includes(ext)) return '📈';
+      if(['zip','rar'].includes(ext)) return '🗜️';
       return '📎';
     }
 
@@ -328,11 +489,11 @@
     };
 
     window.previewFile=(input)=>{
-      const file=input.files[0];if(!file)return;
-      const preview=document.getElementById('filePreview');
+      const file=input.files[0]; if(!file)return;
       const size=file.size>1024*1024?(file.size/1024/1024).toFixed(1)+' MB':(file.size/1024).toFixed(0)+' KB';
+      const preview=document.getElementById('filePreview');
       preview.style.display='flex';
-      preview.innerHTML=`<span>${getFileIcon(file.name)}</span><div><div style="font-weight:600">${file.name}</div><div style="font-size:12px;color:var(--muted)">${size}</div></div>`;
+      preview.innerHTML=`<span style="font-size:28px">${getFileIcon(file.name)}</span><div><div style="font-weight:600;font-size:14px">${file.name}</div><div style="font-size:12px;color:var(--muted)">${size}</div></div>`;
       document.getElementById('uploadArea').style.display='none';
     };
 
@@ -340,23 +501,23 @@
       const judul=document.getElementById('judulFile').value.trim();
       const fileInput=document.getElementById('fileInput');
       const file=fileInput.files[0];
-      if(!judul)return toast('Isi judul materi dulu');
-      if(!file)return toast('Pilih file dulu');
+      if(!judul) return toast('⚠️ Isi judul materi dulu');
+      if(!file) return toast('⚠️ Pilih file dulu');
 
       const path=`materi/${_prt.id}/${Date.now()}_${file.name}`;
       const storageRef=ref(storage,path);
       const uploadTask=uploadBytesResumable(storageRef,file);
 
       document.getElementById('uploadProgress').style.display='block';
-      document.querySelector('.btn-full').disabled=true;
+      document.getElementById('submitFileBtn').disabled=true;
 
       uploadTask.on('state_changed',
         (snapshot)=>{
           const pct=Math.round(snapshot.bytesTransferred/snapshot.totalBytes*100);
           document.getElementById('progressFill').style.width=pct+'%';
-          document.getElementById('progressTxt').textContent=`Mengupload... ${pct}%`;
+          document.getElementById('progressTxt').textContent=`Mengupload ${pct}%...`;
         },
-        (err)=>{ toast('Upload gagal: '+err.message); document.getElementById('uploadProgress').style.display='none'; },
+        (err)=>{ toast('❌ Upload gagal: '+err.message); document.getElementById('uploadProgress').style.display='none'; document.getElementById('submitFileBtn').disabled=false; },
         async()=>{
           const url=await getDownloadURL(uploadTask.snapshot.ref);
           const size=file.size>1024*1024?(file.size/1024/1024).toFixed(1)+' MB':(file.size/1024).toFixed(0)+' KB';
@@ -371,11 +532,10 @@
 
     window.simpanMateriTeks=async()=>{
       const judul=document.getElementById('judulTeks').value.trim();
-      if(!judul)return toast('Isi judul materi dulu');
-      if(!_quill)return;
+      if(!judul) return toast('⚠️ Isi judul materi dulu');
+      if(!_quill) return;
+      if(_quill.getText().trim().length===0) return toast('⚠️ Isi konten materi dulu');
       const konten=_quill.root.innerHTML;
-      if(_quill.getText().trim().length===0)return toast('Isi konten materi dulu');
-
       await addDoc(collection(db,'pertemuan',_prt.id,'materi'),{
         judul,tipe:'teks',konten,createdAt:serverTimestamp()
       });
@@ -387,288 +547,370 @@
       const snap=await getDoc(doc(db,'pertemuan',_prt.id,'materi',materiId));
       if(!snap.exists())return;
       const m=snap.data();
-      openModal(m.judul,`<div class="materi-konten ql-editor" style="padding:0">${m.konten}</div>`);
+      openModal(m.judul,`<div class="materi-konten ql-editor" style="padding:0;border:none">${m.konten}</div>`);
     };
 
     window.editMateriTeks=async(materiId)=>{
       const snap=await getDoc(doc(db,'pertemuan',_prt.id,'materi',materiId));
       if(!snap.exists())return;
       const m=snap.data();
-      openModal('Edit Materi: '+m.judul,`
-        <input class="inp" id="editJudul" value="${m.judul}">
-        <div id="editQuill" style="height:300px"></div>
-        <button class="btn-full" style="margin-top:12px" onclick="saveEditTeks('${materiId}')">Simpan Perubahan</button>
+      openModal('Edit: '+m.judul,`
+        <input class="inp" id="editJudul" value="${m.judul.replace(/"/g,'&quot;')}">
+        <div id="editQuill" style="height:280px"></div>
+        <button class="btn-submit" style="margin-top:12px" onclick="saveEditTeks('${materiId}')">Simpan Perubahan</button>
       `);
       setTimeout(()=>{
         const eq=new Quill('#editQuill',{theme:'snow',modules:{toolbar:[
           [{header:[1,2,3,false]}],['bold','italic','underline'],
-          [{list:'ordered'},{list:'bullet'}],['link','image'],['clean']
+          [{list:'ordered'},{list:'bullet'}],['link'],['clean']
         ]}});
         eq.root.innerHTML=m.konten;
         window._editQuill=eq;
-      },100);
+      },150);
     };
 
     window.saveEditTeks=async(materiId)=>{
       const judul=document.getElementById('editJudul').value.trim();
       if(!judul||!window._editQuill)return;
-      const konten=window._editQuill.root.innerHTML;
-      await updateDoc(doc(db,'pertemuan',_prt.id,'materi',materiId),{judul,konten});
-      closeModal();toast('✅ Materi diperbarui!');
+      await updateDoc(doc(db,'pertemuan',_prt.id,'materi',materiId),{judul,konten:window._editQuill.root.innerHTML});
+      closeModal(); toast('✅ Materi diperbarui!');
       await renderMateriTab();
     };
 
     window.hapusMateri=async(materiId,filePath)=>{
       if(!confirm('Hapus materi ini?'))return;
-      if(filePath){
-        try{await deleteObject(ref(storage,filePath));}catch(e){}
-      }
+      if(filePath){ try{await deleteObject(ref(storage,filePath));}catch(e){} }
       await deleteDoc(doc(db,'pertemuan',_prt.id,'materi',materiId));
-      toast('🗑 Materi dihapus');
+      toast('🗑️ Materi dihapus');
       await renderMateriTab();
     };
 
     // ── HALAMAN LAIN ─────────────────────────────────────────
-    async function renderMahasiswa(){setContent('<div class="card"><div class="card-hd"><div class="card-title">👥 Mahasiswa</div></div><div class="empty"><p>Fitur segera hadir.</p></div></div>');}
-    async function renderNilaiDsn(){setContent('<div class="card"><div class="card-hd"><div class="card-title">✏️ Input Nilai</div></div><div class="empty"><p>Fitur segera hadir.</p></div></div>');}
-    async function renderNotifikasi(){setContent('<div class="card"><div class="card-hd"><div class="card-title">🔔 Notifikasi</div></div><div class="empty"><p>Tidak ada notifikasi.</p></div></div>');}
-    async function renderProfil(){setContent(`<div class="card"><div style="padding:20px"><h3>${user.nama}</h3><p style="color:var(--muted)">${user.email}</p><p style="margin-top:8px">Role: ${user.role}</p></div></div>`);}
-    async function renderAbsensiMhs(){setContent('<div class="card"><div class="card-hd"><div class="card-title">✋ Absensi Saya</div></div><div class="empty"><p>Fitur segera hadir.</p></div></div>');}
-    async function renderNilaiMhs(){setContent('<div class="card"><div class="card-hd"><div class="card-title">📊 Nilai Saya</div></div><div class="empty"><p>Fitur segera hadir.</p></div></div>');}
+    async function renderMahasiswa(){ setContent('<div class="empty"><div class="empty-ico">👥</div><h3>Data Mahasiswa</h3><p>Fitur segera hadir.</p></div>'); }
+    async function renderNilaiDsn(){ setContent('<div class="empty"><div class="empty-ico">✏️</div><h3>Input Nilai</h3><p>Fitur segera hadir.</p></div>'); }
+    async function renderNotifikasi(){ setContent('<div class="empty"><div class="empty-ico">🔔</div><h3>Notifikasi</h3><p>Tidak ada notifikasi.</p></div>'); }
+    async function renderProfil(){
+      setContent(`
+        <div class="profil-card">
+          <div class="profil-av">${(user.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}</div>
+          <div class="profil-nama">${user.nama}</div>
+          <div class="profil-email">${user.email}</div>
+          <div class="profil-badge">${user.role==='dosen'?'👨‍🏫 Dosen':'🎓 Mahasiswa'}</div>
+          ${user.nim?`<div class="profil-detail">NIM: ${user.nim}</div>`:''}
+          ${user.prodi?`<div class="profil-detail">Prodi: ${user.prodi}</div>`:''}
+          ${user.semester?`<div class="profil-detail">Semester: ${user.semester}</div>`:''}
+          <button class="btn-submit" style="margin-top:20px;max-width:200px" onclick="doLogout()">Keluar</button>
+        </div>`);
+    }
+    async function renderAbsensiMhs(){ setContent('<div class="empty"><div class="empty-ico">✋</div><h3>Absensi Saya</h3><p>Fitur segera hadir.</p></div>'); }
+    async function renderNilaiMhs(){ setContent('<div class="empty"><div class="empty-ico">📊</div><h3>Nilai Saya</h3><p>Fitur segera hadir.</p></div>'); }
 
     // ── UTILS ─────────────────────────────────────────────────
-    function v(id){return document.getElementById(id)?.value||'';}
-    window.toast=(msg)=>{
-      const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
-      clearTimeout(window._tToast);window._tToast=setTimeout(()=>t.classList.remove('show'),2800);
+    function v(id){ return document.getElementById(id)?.value||''; }
+    window.toast=(msg,dur=2800)=>{
+      const t=document.getElementById('toast'); t.innerHTML=msg; t.classList.add('show');
+      clearTimeout(window._tToast); window._tToast=setTimeout(()=>t.classList.remove('show'),dur);
     };
-    window.closeModal=()=>{document.getElementById('modalBg').classList.remove('open');document.body.style.overflow='';};
+    window.closeModal=()=>{ document.getElementById('modalBg').classList.remove('open'); document.body.style.overflow=''; };
     window.openModal=(title,content)=>{
-      document.getElementById('modalBox').innerHTML=`<div class="modal-title">${title}<button class="modal-x" onclick="closeModal()">✕</button></div>${content}`;
-      document.getElementById('modalBg').classList.add('open');document.body.style.overflow='hidden';
+      document.getElementById('modalBox').innerHTML=`
+        <div class="modal-hd">
+          <div class="modal-title">${title}</div>
+          <button class="modal-x" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body">${content}</div>`;
+      document.getElementById('modalBg').classList.add('open'); document.body.style.overflow='hidden';
     };
   </script>
 
   <style>
-    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-    :root{
-      --ink:#1a1d27;--ink2:#3d4155;--muted:#7c829a;--border:#e4e7f0;
-      --bg:#f5f6fa;--white:#fff;--p:#4f46e5;--pd:#3730a3;--pl:#eef2ff;--pm:#6366f1;
-      --g:#059669;--gb:#ecfdf5;--r:#dc2626;--rb:#fef2f2;--a:#d97706;--ab:#fffbeb;
-      --b:#2563eb;--bb:#eff6ff;--pu:#7c3aed;--pub:#f5f3ff;
-      --side:240px;--top:58px;--bot:60px;
-      --radius:10px;
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    :root {
+      --ink: #111827;
+      --ink2: #374151;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --bg: #f9fafb;
+      --white: #ffffff;
+      --p: #4f46e5;
+      --pd: #3730a3;
+      --pl: #eef2ff;
+      --g: #059669;
+      --r: #dc2626;
+      --rb: #fef2f2;
+      --a: #d97706;
+      --side: 240px;
+      --top: 60px;
+      --bot: 64px;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+      --shadow-md: 0 4px 16px rgba(0,0,0,.1);
     }
-    body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.5;height:100vh;overflow:hidden}
+    body { font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; height: 100vh; overflow: hidden; }
+    svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
     /* ── LOGIN ── */
-    #screen-login{position:fixed;inset:0;background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#312e81 100%);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto}
-    .login-wrap{width:100%;max-width:420px}
-    .login-brand{text-align:center;margin-bottom:24px}
-    .login-brand h1{color:#fff;font-size:24px;font-weight:800;letter-spacing:-0.5px}
-    .login-card{background:#fff;border-radius:20px;padding:28px;box-shadow:0 24px 64px rgba(0,0,0,0.4)}
-    .role-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:20px}
-    .role-tab{padding:10px;border:1.5px solid var(--border);border-radius:9px;cursor:pointer;text-align:center;font-size:13px;color:var(--muted);background:#fff;transition:all .15s}
-    .role-tab.on{border-color:var(--p);background:var(--pl);color:var(--p);font-weight:600}
-    .inp{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:15px;margin-bottom:12px;outline:none;transition:border-color .15s}
-    .inp:focus{border-color:var(--p)}
-    .btn-full{width:100%;padding:14px;background:var(--p);color:#fff;border:none;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer;transition:background .15s}
-    .btn-full:hover{background:var(--pd)}
-    .btn-full:disabled{opacity:.5;cursor:not-allowed}
-    .dosen-info{background:var(--pl);border:1.5px solid var(--p);border-radius:9px;padding:12px;color:var(--p);margin-bottom:12px;display:none;font-size:13px}
+    #screen-login { position: fixed; inset: 0; background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 60%, #312e81 100%); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; overflow-y: auto; }
+    .login-wrap { width: 100%; max-width: 400px; }
+    .login-brand { text-align: center; margin-bottom: 28px; }
+    .login-brand-logo { font-size: 40px; margin-bottom: 8px; }
+    .login-brand h1 { color: #fff; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+    .login-brand p { color: rgba(255,255,255,.45); margin-top: 4px; font-size: 13px; }
+    .login-card { background: #fff; border-radius: 20px; padding: 28px; box-shadow: 0 32px 80px rgba(0,0,0,.5); }
+    .role-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 22px; }
+    .role-tab { padding: 11px; border: 1.5px solid var(--border); border-radius: 10px; cursor: pointer; text-align: center; font-size: 13px; font-weight: 500; color: var(--muted); background: #fff; transition: all .15s; }
+    .role-tab.on { border-color: var(--p); background: var(--pl); color: var(--p); font-weight: 700; }
+    .inp { width: 100%; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 14px; margin-bottom: 12px; outline: none; font-family: inherit; transition: border-color .15s, box-shadow .15s; color: var(--ink); }
+    .inp:focus { border-color: var(--p); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+    .btn-submit { width: 100%; padding: 13px; background: var(--p); color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn-submit:hover { background: var(--pd); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(79,70,229,.3); }
+    .btn-submit:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .dosen-info { background: var(--pl); border: 1.5px solid var(--p); border-radius: 10px; padding: 12px 14px; color: var(--p); margin-bottom: 14px; display: none; font-size: 13px; }
+    .auth-msg { padding: 11px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 13px; display: none; align-items: center; gap: 8px; }
+    #authErr { background: var(--rb); color: var(--r); border: 1px solid #fca5a5; }
+    #authOk { background: #ecfdf5; color: var(--g); border: 1px solid #6ee7b7; }
 
-    /* ── APP LAYOUT ── */
-    #app{display:none;height:100vh;flex-direction:row}
-    .sidebar{width:var(--side);background:var(--ink);display:flex;flex-direction:column;height:100vh;flex-shrink:0;transition:transform .25s}
-    .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-    .topbar{height:var(--top);background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:10px;flex-shrink:0}
-    .page-title{font-weight:700;font-size:16px;flex:1}
-    .content{flex:1;overflow-y:auto;padding:16px}
-    .bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);z-index:50;padding-bottom:env(safe-area-inset-bottom)}
-    .bn-items{display:flex;justify-content:space-around}
-    .bn-item{display:flex;flex-direction:column;align-items:center;padding:8px 4px;cursor:pointer;font-size:10px;gap:2px;color:var(--muted);min-width:0}
-    .bn-item.on{color:var(--p)}
-    .bn-ico{font-size:20px}
+    /* ── APP ── */
+    #app { display: none; height: 100vh; flex-direction: row; }
+    .sidebar { width: var(--side); background: #111827; display: flex; flex-direction: column; height: 100vh; flex-shrink: 0; transition: transform .25s cubic-bezier(.4,0,.2,1); }
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+    .topbar { height: var(--top); background: #fff; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 12px; flex-shrink: 0; }
+    .page-title { font-weight: 700; font-size: 16px; flex: 1; color: var(--ink); }
+    .content { flex: 1; overflow-y: auto; padding: 20px; }
+    .bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid var(--border); z-index: 50; padding-bottom: env(safe-area-inset-bottom); }
+    .bn-items { display: flex; justify-content: space-around; }
+    .bn-item { display: flex; flex-direction: column; align-items: center; padding: 10px 4px 6px; cursor: pointer; font-size: 10px; font-weight: 500; gap: 3px; color: var(--muted); min-width: 0; transition: color .15s; }
+    .bn-item.on { color: var(--p); }
+    .bn-ico { display: flex; align-items: center; justify-content: center; }
 
     /* ── SIDEBAR ── */
-    .sb-brand{padding:16px 14px;color:#fff;font-weight:800;font-size:15px;border-bottom:1px solid rgba(255,255,255,.08)}
-    .sb-user{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08)}
-    .sb-av{width:36px;height:36px;border-radius:50%;background:var(--p);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
-    .sb-uname{color:#fff;font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    #sbRole{color:rgba(255,255,255,.45);font-size:11px}
-    .sb-nav{flex:1;overflow-y:auto;padding:8px 0}
-    .nav-sec{color:rgba(255,255,255,.3);font-size:10px;font-weight:700;text-transform:uppercase;padding:12px 14px 4px;letter-spacing:.5px}
-    .nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;color:rgba(255,255,255,.65);cursor:pointer;border-radius:8px;margin:1px 8px;font-size:13px;transition:all .15s}
-    .nav-item:hover,.nav-item.on{background:rgba(255,255,255,.1);color:#fff}
-    .nav-ico{font-size:16px;width:20px;text-align:center;flex-shrink:0}
+    .sb-brand { padding: 20px 16px 16px; color: #fff; font-weight: 800; font-size: 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .sb-user { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .sb-av { width: 38px; height: 38px; border-radius: 10px; background: var(--p); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+    .sb-uname { color: #fff; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #sbRole { color: rgba(255,255,255,.4); font-size: 11px; margin-top: 1px; }
+    .sb-nav { flex: 1; overflow-y: auto; padding: 10px 8px; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: rgba(255,255,255,.55); cursor: pointer; border-radius: 8px; margin-bottom: 2px; font-size: 13px; font-weight: 500; transition: all .15s; }
+    .nav-item:hover { background: rgba(255,255,255,.07); color: rgba(255,255,255,.9); }
+    .nav-item.on { background: rgba(79,70,229,.35); color: #fff; }
+    .nav-item.on .nav-ico { color: #a5b4fc; }
+    .nav-ico { width: 20px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .nav-lbl { flex: 1; }
+    .nav-logout { margin-top: 8px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 12px; }
 
-    /* ── CARDS & STATS ── */
-    .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
-    .stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:14px}
-    .stat-ico{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:8px}
-    .stat-lbl{font-size:11px;color:var(--muted);margin-bottom:2px}
-    .stat-val{font-size:22px;font-weight:700;line-height:1.2}
-    .stat-sub{font-size:11px;color:var(--muted)}
-    .card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;overflow:hidden}
-    .card-hd{padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px}
-    .card-title{font-size:14px;font-weight:700}
-    .empty{text-align:center;padding:40px 20px;color:var(--muted)}
-    .emo{font-size:40px;margin-bottom:8px}
-    .loading{text-align:center;padding:40px;color:var(--muted)}
+    /* ── DASHBOARD ── */
+    .dash-hero { background: linear-gradient(135deg, var(--p), #7c3aed); border-radius: 16px; padding: 24px; margin-bottom: 16px; color: white; }
+    .dash-greet { font-size: 13px; opacity: .8; font-weight: 500; margin-bottom: 4px; }
+    .dash-name { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+    .dash-sub { font-size: 13px; opacity: .7; }
+    .stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); transition: transform .15s, box-shadow .15s; }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+    .stat-ico { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+    .stat-val { font-size: 24px; font-weight: 800; line-height: 1.2; margin-bottom: 4px; color: var(--ink); }
+    .stat-lbl { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .section-title { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .quick-actions { margin-top: 4px; }
+    .qa-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-top: 10px; }
+    .qa-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 12px; cursor: pointer; text-align: center; font-size: 13px; font-weight: 500; color: var(--ink2); transition: all .15s; box-shadow: var(--shadow); }
+    .qa-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--p); }
+    .qa-ico { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }
 
     /* ── PERTEMUAN ── */
-    .prt-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-    .prt-card{background:#fff;border:1.5px solid var(--border);border-radius:var(--radius);padding:14px;cursor:pointer;transition:all .15s}
-    .prt-card:hover{border-color:var(--p);box-shadow:0 2px 12px rgba(79,70,229,.1);transform:translateY(-1px)}
-    .prt-badge{display:inline-block;background:var(--pl);color:var(--p);font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;margin-bottom:6px}
-    .prt-topik{font-size:13px;font-weight:600;color:var(--ink);line-height:1.4}
-    .prt-detail-header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-    .prt-detail-header h2{font-size:16px;font-weight:700;flex:1}
-    .btn-back{padding:7px 14px;border:1.5px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;font-size:13px;color:var(--ink2);white-space:nowrap}
-    .btn-back:hover{border-color:var(--p);color:var(--p)}
+    .prt-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+    .prt-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; cursor: pointer; transition: all .15s; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+    .prt-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--p), #7c3aed); opacity: 0; transition: opacity .15s; }
+    .prt-card:hover { border-color: var(--p); box-shadow: var(--shadow-md); transform: translateY(-2px); }
+    .prt-card:hover::before { opacity: 1; }
+    .prt-num { font-size: 11px; font-weight: 700; color: var(--p); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .prt-topik { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; }
+    .prt-arrow { margin-top: 12px; color: var(--muted); transform: rotate(180deg); }
+    .prt-detail-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+    .prt-detail-badge { font-size: 11px; font-weight: 700; color: var(--p); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+    .prt-detail-title { font-size: 16px; font-weight: 700; color: var(--ink); }
+    .btn-back { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1.5px solid var(--border); border-radius: 9px; background: #fff; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--ink2); white-space: nowrap; transition: all .15s; flex-shrink: 0; font-family: inherit; }
+    .btn-back:hover { border-color: var(--p); color: var(--p); }
 
     /* ── TABS ── */
-    .dtabs{display:flex;gap:4px;margin-bottom:14px;background:#fff;padding:4px;border-radius:10px;border:1px solid var(--border)}
-    .dtab{flex:1;padding:8px;text-align:center;border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;color:var(--muted);transition:all .15s}
-    .dtab.on{background:var(--p);color:#fff;font-weight:700}
+    .dtabs { display: flex; gap: 4px; margin-bottom: 16px; background: #fff; padding: 4px; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); }
+    .dtab { flex: 1; padding: 9px; text-align: center; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); transition: all .15s; }
+    .dtab.on { background: var(--p); color: #fff; font-weight: 700; box-shadow: 0 2px 8px rgba(79,70,229,.3); }
 
     /* ── MATERI ── */
-    .materi-item{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border);transition:background .1s}
-    .materi-item:last-child{border-bottom:none}
-    .materi-item:hover{background:#fafafa}
-    .materi-icon{font-size:28px;flex-shrink:0;width:40px;text-align:center}
-    .materi-info{flex:1;min-width:0}
-    .materi-judul{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .materi-meta{font-size:12px;color:var(--muted);margin-top:2px}
-    .materi-actions{display:flex;gap:6px;flex-shrink:0}
-    .btn-dl{padding:6px 12px;background:var(--p);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap}
-    .btn-dl:hover{background:var(--pd)}
-    .btn-del-materi{padding:6px 10px;background:var(--rb);color:var(--r);border:none;border-radius:7px;font-size:14px;cursor:pointer}
-    .materi-konten{font-size:14px;line-height:1.7;color:var(--ink)}
-    .materi-konten h1,.materi-konten h2,.materi-konten h3{margin:16px 0 8px;font-weight:700}
-    .materi-konten p{margin-bottom:10px}
-    .materi-konten ul,.materi-konten ol{padding-left:20px;margin-bottom:10px}
+    .materi-list { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+    .materi-item { display: flex; align-items: center; gap: 14px; padding: 16px; border-bottom: 1px solid var(--border); transition: background .1s; }
+    .materi-item:last-child { border-bottom: none; }
+    .materi-item:hover { background: #fafafa; }
+    .materi-icon-wrap { font-size: 28px; flex-shrink: 0; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: var(--bg); border-radius: 10px; }
+    .materi-info { flex: 1; min-width: 0; }
+    .materi-judul { font-weight: 600; font-size: 14px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .materi-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .materi-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .btn-action { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .15s; text-decoration: none; white-space: nowrap; }
+    .btn-primary { background: var(--p); color: #fff; }
+    .btn-primary:hover { background: var(--pd); }
+    .btn-secondary { background: #f3f4f6; color: var(--ink2); }
+    .btn-secondary:hover { background: #e5e7eb; }
+    .btn-danger { background: var(--rb); color: var(--r); }
+    .btn-danger:hover { background: #fecaca; }
+    .materi-konten { font-size: 14px; line-height: 1.8; color: var(--ink); }
 
-    /* ── UPLOAD ── */
-    .tipe-tabs{display:flex;gap:8px;margin-bottom:16px}
-    .tipe-tab{flex:1;padding:10px;border:1.5px solid var(--border);border-radius:9px;cursor:pointer;text-align:center;font-size:13px;color:var(--muted);transition:all .15s}
-    .tipe-tab.on{border-color:var(--p);background:var(--pl);color:var(--p);font-weight:600}
-    .upload-area{border:2px dashed var(--border);border-radius:10px;padding:30px;text-align:center;cursor:pointer;transition:all .15s;margin-bottom:12px}
-    .upload-area:hover{border-color:var(--p);background:var(--pl)}
-    .upload-ico{font-size:36px;margin-bottom:8px}
-    .upload-txt{font-weight:600;font-size:14px;margin-bottom:4px}
-    .upload-sub{font-size:12px;color:var(--muted)}
-    .file-preview{display:flex;align-items:center;gap:10px;padding:12px;background:var(--gb);border-radius:9px;margin-bottom:12px;font-size:14px}
-    .file-preview span{font-size:28px}
-    .progress-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:6px}
-    .progress-fill{height:100%;background:var(--p);border-radius:3px;transition:width .3s}
-    .progress-txt{font-size:12px;color:var(--muted);text-align:center}
+    /* ── ADD MATERI ── */
+    .add-materi-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); margin-top: 16px; overflow: hidden; box-shadow: var(--shadow); }
+    .add-materi-title { display: flex; align-items: center; gap: 8px; padding: 16px 18px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 14px; color: var(--ink); background: var(--bg); }
+    .add-materi-card > div:not(.add-materi-title) { padding: 18px; }
+    .tipe-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tipe-tab { display: flex; align-items: center; justify-content: center; gap: 7px; flex: 1; padding: 10px; border: 1.5px solid var(--border); border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); transition: all .15s; font-family: inherit; }
+    .tipe-tab.on { border-color: var(--p); background: var(--pl); color: var(--p); font-weight: 700; }
+    .upload-area { border: 2px dashed var(--border); border-radius: 12px; padding: 36px 20px; text-align: center; cursor: pointer; transition: all .15s; margin-bottom: 12px; }
+    .upload-area:hover { border-color: var(--p); background: var(--pl); }
+    .upload-ico { display: flex; justify-content: center; margin-bottom: 10px; color: var(--muted); }
+    .upload-txt { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: var(--ink); }
+    .upload-sub { font-size: 12px; color: var(--muted); }
+    .file-preview-box { display: flex; align-items: center; gap: 12px; padding: 14px; background: #ecfdf5; border-radius: 10px; margin-bottom: 12px; border: 1px solid #6ee7b7; }
+    .upload-progress { margin-bottom: 12px; }
+    .progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--p), #7c3aed); border-radius: 3px; transition: width .3s; }
+    .progress-txt { font-size: 12px; color: var(--muted); text-align: center; font-weight: 500; }
+
+    /* ── PROFIL ── */
+    .profil-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; text-align: center; max-width: 400px; margin: 0 auto; box-shadow: var(--shadow); }
+    .profil-av { width: 72px; height: 72px; border-radius: 20px; background: linear-gradient(135deg, var(--p), #7c3aed); color: #fff; font-size: 24px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+    .profil-nama { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+    .profil-email { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+    .profil-badge { display: inline-block; background: var(--pl); color: var(--p); font-size: 12px; font-weight: 700; padding: 5px 14px; border-radius: 20px; margin-bottom: 12px; }
+    .profil-detail { font-size: 13px; color: var(--ink2); padding: 6px 0; border-bottom: 1px solid var(--border); }
 
     /* ── MODAL ── */
-    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-end;justify-content:center;z-index:200}
-    .modal-bg.open{display:flex}
-    .modal{background:#fff;border-radius:20px 20px 0 0;padding:20px;width:100%;max-height:90vh;overflow-y:auto}
-    .modal-title{font-weight:700;font-size:16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center}
-    .modal-x{border:none;background:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1}
+    .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: flex-end; justify-content: center; z-index: 200; backdrop-filter: blur(4px); }
+    .modal-bg.open { display: flex; }
+    .modal { background: #fff; border-radius: 20px 20px 0 0; width: 100%; max-height: 92vh; overflow-y: auto; animation: slideUp .25s ease; }
+    @keyframes slideUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .modal-hd { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: #fff; z-index: 1; }
+    .modal-title { font-weight: 700; font-size: 16px; color: var(--ink); }
+    .modal-x { border: none; background: #f3f4f6; width: 32px; height: 32px; border-radius: 50%; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--muted); transition: background .15s; }
+    .modal-x:hover { background: #e5e7eb; }
+    .modal-body { padding: 20px; }
 
     /* ── TOAST ── */
-    .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 20px;border-radius:20px;z-index:999;opacity:0;transition:all .2s;pointer-events:none;white-space:nowrap}
-    .toast.show{opacity:1}
+    .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(10px); background: var(--ink); color: #fff; padding: 11px 20px; border-radius: 40px; z-index: 999; opacity: 0; transition: all .22s; pointer-events: none; white-space: nowrap; font-size: 13px; font-weight: 500; box-shadow: 0 4px 20px rgba(0,0,0,.25); }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── LOADING & EMPTY ── */
+    .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 60px 20px; color: var(--muted); font-size: 13px; }
+    .spin { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--p); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .empty-ico { font-size: 48px; margin-bottom: 12px; }
+    .empty h3 { font-size: 16px; font-weight: 700; color: var(--ink2); margin-bottom: 6px; }
+    .empty p { font-size: 13px; }
 
     /* ── RESPONSIVE ── */
-    @media(max-width:768px){
-      .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:45;transform:translateX(-100%);width:260px}
-      .sidebar.open{transform:translateX(0)}
-      .bottom-nav{display:block}
-      .content{padding-bottom:calc(var(--bot) + 8px)}
-      .stats-grid{grid-template-columns:1fr 1fr}
-      .prt-grid{grid-template-columns:repeat(2,1fr)}
-      .materi-actions{flex-direction:column}
+    @media(max-width: 768px){
+      .sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 45; transform: translateX(-100%); width: 260px; }
+      .sidebar.open { transform: translateX(0); box-shadow: 0 0 40px rgba(0,0,0,.5); }
+      .bottom-nav { display: block; }
+      .content { padding: 16px; padding-bottom: calc(var(--bot) + 16px); }
+      .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .qa-grid { grid-template-columns: 1fr 1fr; }
+      .prt-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .materi-actions { flex-direction: column; }
+      .toast { bottom: calc(var(--bot) + 16px); }
     }
-    @media(max-width:400px){
-      .prt-grid{grid-template-columns:1fr 1fr}
+    @media(max-width: 480px){
+      .prt-grid { grid-template-columns: 1fr 1fr; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
     }
 
-    /* ── Quill override ── */
-    .ql-toolbar{border-radius:9px 9px 0 0;border-color:var(--border)!important}
-    .ql-container{border-radius:0 0 9px 9px;border-color:var(--border)!important;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
+    /* ── Quill ── */
+    .ql-toolbar { border-radius: 10px 10px 0 0 !important; border-color: var(--border) !important; background: var(--bg) !important; }
+    .ql-container { border-radius: 0 0 10px 10px !important; border-color: var(--border) !important; font-family: 'Inter', system-ui, sans-serif !important; font-size: 14px !important; }
+    .ql-editor { min-height: 200px; }
   </style>
 </head>
 <body>
-  <div id="screen-login">
-    <div class="login-wrap">
-      <div class="login-brand">
-        <h1>🎓 EduCampus</h1>
-        <p style="color:rgba(255,255,255,.5);margin-top:4px">Firebase Edition</p>
+
+<!-- LOGIN -->
+<div id="screen-login">
+  <div class="login-wrap">
+    <div class="login-brand">
+      <div class="login-brand-logo">🎓</div>
+      <h1>EduCampus</h1>
+      <p>Platform pembelajaran digital</p>
+    </div>
+    <div class="login-card">
+      <div class="role-tabs">
+        <div class="role-tab on" id="tabM" onclick="setRole('mahasiswa')">🎓 Mahasiswa</div>
+        <div class="role-tab" id="tabD" onclick="setRole('dosen')">👨‍🏫 Dosen</div>
       </div>
-      <div class="login-card">
-        <div class="role-tabs">
-          <div class="role-tab on" id="tabM" onclick="setRole('mahasiswa')">🎓 Mahasiswa</div>
-          <div class="role-tab" id="tabD" onclick="setRole('dosen')">👨‍🏫 Dosen</div>
+      <div class="auth-msg" id="authErr"></div>
+      <div class="auth-msg" id="authOk"></div>
+      <div class="dosen-info" id="dosenInfo"><strong>👨‍🏫 Akun Dosen</strong> — Login dengan akun yang telah disiapkan admin.</div>
+      <div id="fLogin">
+        <input class="inp" id="lEmail" placeholder="Alamat email" type="email" autocomplete="email">
+        <input class="inp" id="lPass" placeholder="Password" type="password" autocomplete="current-password">
+        <button class="btn-submit" id="loginBtn" onclick="doLogin()">Masuk</button>
+        <div style="text-align:center;margin-top:16px;font-size:13px;color:var(--muted)" id="switchLink">
+          Belum punya akun? <span style="color:var(--p);font-weight:600;cursor:pointer" onclick="toggleReg()">Daftar sekarang</span>
         </div>
-        <div id="authErr" style="background:var(--rb);color:var(--r);padding:10px 12px;border-radius:8px;margin-bottom:12px;display:none;font-size:13px"></div>
-        <div id="authOk" style="background:var(--gb);color:var(--g);padding:10px 12px;border-radius:8px;margin-bottom:12px;display:none;font-size:13px"></div>
-        <div class="dosen-info" id="dosenInfo"><strong>👨‍🏫 Akun Dosen</strong> — Login dengan akun yang sudah dibuat admin.</div>
-        <div id="fLogin">
-          <input class="inp" id="lEmail" placeholder="Email" type="email" autocomplete="email">
-          <input class="inp" id="lPass" placeholder="Password" type="password" autocomplete="current-password">
-          <button class="btn-full" onclick="doLogin()">Masuk</button>
-          <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--muted)" id="switchLink" onclick="toggleReg()">
-            Belum punya akun? <span style="color:var(--p);font-weight:600;cursor:pointer">Daftar</span>
-          </div>
-        </div>
-        <div id="fReg" style="display:none">
-          <input class="inp" id="rNama" placeholder="Nama Lengkap">
-          <input class="inp" id="rNim" placeholder="NIM">
-          <input class="inp" id="rEmail" placeholder="Email" type="email">
-          <input class="inp" id="rPass" placeholder="Password (min. 6)" type="password">
-          <input class="inp" id="rSem" placeholder="Semester" type="number">
-          <input class="inp" id="rProdi" placeholder="Program Studi">
-          <button class="btn-full" onclick="doRegister()">Daftar Akun</button>
-          <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--muted);cursor:pointer" onclick="toggleReg()">
-            Sudah punya akun? <span style="color:var(--p);font-weight:600">Masuk</span>
-          </div>
+      </div>
+      <div id="fReg" style="display:none">
+        <input class="inp" id="rNama" placeholder="Nama Lengkap">
+        <input class="inp" id="rNim" placeholder="NIM">
+        <input class="inp" id="rEmail" placeholder="Alamat email" type="email">
+        <input class="inp" id="rPass" placeholder="Password (min. 6 karakter)" type="password">
+        <input class="inp" id="rSem" placeholder="Semester" type="number" min="1" max="14">
+        <input class="inp" id="rProdi" placeholder="Program Studi">
+        <button class="btn-submit" onclick="doRegister()">Buat Akun</button>
+        <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--muted);cursor:pointer" onclick="toggleReg()">
+          Sudah punya akun? <span style="color:var(--p);font-weight:600">Masuk</span>
         </div>
       </div>
     </div>
   </div>
+</div>
 
-  <div id="app">
-    <div class="sidebar" id="sidebar">
-      <div class="sb-brand">🎓 EduCampus</div>
-      <div class="sb-user">
-        <div class="sb-av" id="sbAv">?</div>
-        <div style="min-width:0">
-          <div class="sb-uname" id="sbName">...</div>
-          <div id="sbRole"></div>
-        </div>
+<!-- APP -->
+<div id="app">
+  <div class="sidebar" id="sidebar">
+    <div class="sb-brand">🎓 EduCampus</div>
+    <div class="sb-user">
+      <div class="sb-av" id="sbAv">?</div>
+      <div style="min-width:0">
+        <div class="sb-uname" id="sbName">...</div>
+        <div id="sbRole"></div>
       </div>
-      <div class="sb-nav" id="navMenu"></div>
     </div>
-
-    <div class="main">
-      <header class="topbar">
-        <button onclick="openSidebar()" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;display:none" id="menuBtn">☰</button>
-        <div class="page-title" id="pageTitle">Dashboard</div>
-        <div id="topActions"></div>
-      </header>
-      <div class="content" id="content"></div>
-    </div>
-
-    <nav class="bottom-nav" id="bottomNav"></nav>
+    <div class="sb-nav" id="navMenu"></div>
   </div>
 
-  <div class="modal-bg" id="modalBg">
-    <div class="modal" id="modalBox"></div>
+  <div class="main">
+    <header class="topbar">
+      <button onclick="openSidebar()" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--ink);display:none" id="menuBtn">
+        <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="page-title" id="pageTitle">Dashboard</div>
+      <div id="topActions"></div>
+    </header>
+    <div class="content" id="content"></div>
   </div>
-  <div class="toast" id="toast"></div>
-  <div id="sbOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:44" onclick="closeSidebar()"></div>
 
-  <script>
-    // Show menu button on mobile
-    if(window.innerWidth<=768){
-      document.getElementById('menuBtn').style.display='block';
-    }
-  </script>
+  <nav class="bottom-nav" id="bottomNav"></nav>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal" id="modalBox"></div>
+</div>
+<div class="toast" id="toast"></div>
+<div id="sbOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:44" onclick="closeSidebar()"></div>
+
+<script>
+  if(window.innerWidth<=768){
+    document.getElementById('menuBtn').style.display='block';
+  }
+  // make sbOverlay show/hide work
+  const _origOpen = window.openSidebar;
+  const _origClose = window.closeSidebar;
+</script>
 </body>
 </html>
