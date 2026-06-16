@@ -967,7 +967,7 @@ window.closeSidebar = ()=>{
       const valid=window._pertanyaan.filter(p=>p&&p.soal.trim()&&p.pilihan.some(x=>x.trim()));
       if(valid.length===0)return toast('⚠️ Tambahkan minimal 1 soal');
       const kuisRef=await addDoc(collection(db,'pertemuan',_prt.id,'kuis'),{judul,durasi,createdAt:serverTimestamp()});
-      for(const p of valid){ await addDoc(collection(db,'pertemuan',_prt.id,'kuis',kuisRef.id,'pertanyaan'),p); }
+      for(let i=0; i<valid.length; i++){ await addDoc(collection(db,'pertemuan',_prt.id,'kuis',kuisRef.id,'pertanyaan'),{...valid[i], urutan:i}); }
       toast('✅ Kuis berhasil dibuat!');
       await renderKuisTab();
     };
@@ -979,6 +979,7 @@ window.closeSidebar = ()=>{
       const pertSnap=await getDocs(collection(db,'pertemuan',_prt.id,'kuis',kuisId,'pertanyaan'));
       const soalList=[];
       pertSnap.forEach(d=>soalList.push({id:d.id,...d.data()}));
+      soalList.sort((a,b)=>(a.urutan??0)-(b.urutan??0));
       if(soalList.length===0)return toast('⚠️ Kuis ini belum memiliki soal');
 
       // Simpan di window agar bisa diakses tanpa serialize ke HTML
@@ -1410,7 +1411,7 @@ window.closeSidebar = ()=>{
             ${user?.nim?`<div class="profil-detail">NIM: ${user.nim}</div>`:''}
             ${user?.prodi?`<div class="profil-detail">Prodi: ${user.prodi}</div>`:''}
             ${user?.semester?`<div class="profil-detail">Semester: ${user.semester}</div>`:''}
-            <button class="btn-submit" style="margin-top:20px;max-width:200px" onclick="doLogout()">Keluar</button>
+            <button class="btn-submit" style="margin-top:20px;max-width:200px;margin-left:auto;margin-right:auto" onclick="doLogout()">Keluar</button>
           </div>`);
       }catch(e){setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat profil</h3><p>${e.message}</p></div>`);}
     }
