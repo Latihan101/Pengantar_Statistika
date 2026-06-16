@@ -55,7 +55,6 @@ async function uploadToDrive(file, subFolder, onProgress) {
   const base64Data = await fileToBase64(file);
   onProgress && onProgress(40);
 
-  // GUNAKAN URLSearchParams, BUKAN FormData
   const params = new URLSearchParams();
   params.append('action', 'upload');
   params.append('namaFile', file.name);
@@ -65,45 +64,41 @@ async function uploadToDrive(file, subFolder, onProgress) {
 
   onProgress && onProgress(60);
 
-  console.log('Mengirim ke Drive...');
-  console.log('- Nama file:', file.name);
-  console.log('- Subfolder:', subFolder);
-  console.log('- Size base64:', base64Data.length);
-
   const res = await fetch(DRIVE_API, {
     method: 'POST',
+    redirect: 'follow',           // ← TAMBAHAN: ikuti redirect GAS
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: params.toString()
   });
-  
-  console.log('Response status:', res.status);
-  
+
+  onProgress && onProgress(90);
+
+  // GAS kadang return HTML error page jika ada masalah server
   const responseText = await res.text();
-  console.log('Response text:', responseText);
   
   let json;
   try {
-    json = JSON.parse(responseText);
+    // Bersihkan karakter tak terduga sebelum parse
+    const cleaned = responseText.trim().replace(/^\uFEFF/, ''); // hapus BOM jika ada
+    json = JSON.parse(cleaned);
   } catch(e) {
-    console.error('Response bukan JSON:', responseText);
-    throw new Error('Server mengembalikan response tidak valid');
+    console.error('Response bukan JSON. Raw response:', responseText.substring(0, 500));
+    throw new Error('Server error: ' + (responseText.substring(0, 100) || 'Response tidak valid'));
   }
 
   onProgress && onProgress(100);
 
   if (!json.ok) {
-    console.error('Upload gagal:', json.error);
     throw new Error(json.error || 'Upload gagal');
   }
   
-  console.log('Upload berhasil:', json);
   return json;
 }
 
     // Hapus file dari Google Drive via Apps Script
-  async function deleteFromDrive(fileId) {
+async function deleteFromDrive(fileId) {
   if (!fileId) return;
   try {
     const params = new URLSearchParams();
@@ -112,6 +107,7 @@ async function uploadToDrive(file, subFolder, onProgress) {
     
     await fetch(DRIVE_API, {
       method: 'POST',
+      redirect: 'follow',   // ← TAMBAHAN
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
@@ -867,46 +863,62 @@ async function uploadToDrive(file, subFolder, onProgress) {
     };
 
     // ══ KUMPUL TUGAS → Upload ke Google Drive ══
-    window.kumpulTugas = async(tugasId)=>{
-      const catatan = document.getElementById('kumpulCatatan_'+tugasId)?.value.trim()||'';
-      const fileInput = document.getElementById('kumpulFile_'+tugasId);
-      const file = fileInput?.files[0];
+window.kumpulTugas = async(tugasId) => {
+  const catatanEl = document.getElementById('kumpulCatatan_' + tugasId);
+  const fileInput = document.getElementById('kumpulFile_' + tugasId);
+  
+  // Guard: pastikan form masih ada di DOM
+  if (!catatanEl) {
+    toast('❌ Form tidak ditemukan, coba refresh halaman');
+    return;
+  }
+  
+  const catatan = catatanEl.value.trim() || '';
+  const file = fileInput?.files[0];
 
-      const doSave = async(fileUrl, namaFile, fileId, viewUrl)=>{
-        await setDoc(doc(db,'pertemuan',_prt.id,'tugas',tugasId,'pengumpulan',user.id),{
-          mahasiswaId: user.id, nama: user.nama, nim: user.nim||'-',
-          catatan,
-          fileUrl: fileUrl||null,
-          namaFile: namaFile||null,
-          fileId: fileId||null,       // ID Drive untuk referensi
-          viewUrl: viewUrl||null,
-          waktuKumpul: serverTimestamp()
-        });
-        toast('✅ Tugas berhasil dikumpulkan!');
-        await renderTugasTab();
-      };
+  const doSave = async(fileUrl, namaFile, fileId, viewUrl) => {
+    await setDoc(doc(db, 'pertemuan', _prt.id, 'tugas', tugasId, 'pengumpulan', user.id), {
+      mahasiswaId: user.id, nama: user.nama, nim: user.nim || '-',
+      catatan,
+      fileUrl: fileUrl || null,
+      namaFile: namaFile || null,
+      fileId: fileId || null,
+      viewUrl: viewUrl || null,
+      waktuKumpul: serverTimestamp()
+    });
+    toast('✅ Tugas berhasil dikumpulkan!');
+    await renderTugasTab();
+  };
 
-      if(file){
-        const prog = document.getElementById('kumpulProgress_'+tugasId);
-        const fill = document.getElementById('kumpulProgressFill_'+tugasId);
-        const txt = document.getElementById('kumpulProgressTxt_'+tugasId);
-        if(prog) prog.style.display='block';
+  if (file) {
+    const prog = document.getElementById('kumpulProgress_' + tugasId);
+    const fill = document.getElementById('kumpulProgressFill_' + tugasId);
+    const txt = document.getElementById('kumpulProgressTxt_' + tugasId);
+    
+    // Disable tombol submit agar tidak double-submit
+    const submitBtn = document.querySelector(`[onclick="kumpulTugas('${tugasId}')"]`);
+    if (submitBtn) submitBtn.disabled = true;
+    
+    if (prog) prog.style.display = 'block';
 
-        try {
-          const subFolder = 'tugas_'+_prt.id+'_'+tugasId;
-          const result = await window._uploadToDrive(file, subFolder, (pct)=>{
-            if(fill) fill.style.width=pct+'%';
-            if(txt) txt.textContent='Mengupload ke Google Drive '+pct+'%...';
-          });
-          await doSave(result.fileUrl, file.name, result.fileId, result.viewUrl);
-        } catch(e) {
-          toast('❌ Upload gagal: '+e.message);
-          if(prog) prog.style.display='none';
-        }
-      } else {
-        await doSave(null, null, null, null);
-      }
-    };
+    try {
+      const subFolder = 'tugas_' + _prt.id + '_' + tugasId;
+      const result = await window._uploadToDrive(file, subFolder, (pct) => {
+        if (fill) fill.style.width = pct + '%';
+        if (txt) txt.textContent = 'Mengupload ke Google Drive ' + pct + '%...';
+      });
+      await doSave(result.fileUrl, file.name, result.fileId, result.viewUrl);
+    } catch(e) {
+      toast('❌ Upload gagal: ' + e.message);
+      if (prog) prog.style.display = 'none';
+      if (submitBtn) submitBtn.disabled = false;  // re-enable tombol
+    }
+  } else {
+    // Tanpa file, langsung simpan
+    await doSave(null, null, null, null);
+  }
+};
+    
 
     window.lihatPengumpulan = async(tugasId, judulTugas)=>{
       const snap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas',tugasId,'pengumpulan'));
@@ -1505,38 +1517,27 @@ async function uploadToDrive(file, subFolder, onProgress) {
     // Fungsi test koneksi Google Drive
 window.testDriveConnection = async () => {
   toast('🔍 Mengecek koneksi...');
-  
   try {
     const params = new URLSearchParams();
     params.append('action', 'test');
     
-    console.log('Test URL:', DRIVE_API);
-    
     const res = await fetch(DRIVE_API, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+      redirect: 'follow',   // ← TAMBAHAN
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString()
     });
     
-    console.log('Status:', res.status);
-    
     const text = await res.text();
-    console.log('Response:', text);
+    const json = JSON.parse(text.trim());
     
-    const json = JSON.parse(text);
-    
-    if (json.ok) {
-      toast('✅ Drive API OK!');
-    } else {
-      toast('❌ Error: ' + json.error);
-    }
+    if (json.ok) toast('✅ Drive API OK!');
+    else toast('❌ Error: ' + json.error);
   } catch(e) {
-    console.error('Error:', e);
     toast('❌ ' + e.message);
   }
 };
+
     
     window.closeModal=()=>{document.getElementById('modalBg').classList.remove('open');document.body.style.overflow='';};
     window.openModal=(title,content)=>{
