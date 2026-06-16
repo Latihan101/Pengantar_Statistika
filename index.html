@@ -49,75 +49,75 @@
 
     // Upload file ke Google Drive via Apps Script
     // onProgress(pct) dipanggil selama proses (0-100)
-    async function uploadToDrive(file, subFolder, onProgress) {
+  // Upload file ke Google Drive via Apps Script
+async function uploadToDrive(file, subFolder, onProgress) {
   onProgress && onProgress(10);
-  
-  // Untuk file besar, batasi ukuran (max 10MB untuk Apps Script)
-  const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-  if (file.size > MAX_SIZE) {
-    throw new Error('File terlalu besar. Maksimal 10MB.');
-  }
-  
   const base64Data = await fileToBase64(file);
   onProgress && onProgress(40);
 
-  // Gunakan URLSearchParams
-  const formBody = new URLSearchParams();
-  formBody.append('action', 'upload');
-  formBody.append('namaFile', file.name);
-  formBody.append('mimeType', file.type || 'application/octet-stream');
-  formBody.append('subFolder', subFolder);
-  formBody.append('fileData', base64Data);
+  // GUNAKAN URLSearchParams, BUKAN FormData
+  const params = new URLSearchParams();
+  params.append('action', 'upload');
+  params.append('namaFile', file.name);
+  params.append('mimeType', file.type || 'application/octet-stream');
+  params.append('subFolder', subFolder);
+  params.append('fileData', base64Data);
 
   onProgress && onProgress(60);
+
+  console.log('Mengirim ke Drive...');
+  console.log('- Nama file:', file.name);
+  console.log('- Subfolder:', subFolder);
+  console.log('- Size base64:', base64Data.length);
 
   const res = await fetch(DRIVE_API, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: formBody.toString()
+    body: params.toString()
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Server error: ${res.status} - ${text}`);
+  
+  console.log('Response status:', res.status);
+  
+  const responseText = await res.text();
+  console.log('Response text:', responseText);
+  
+  let json;
+  try {
+    json = JSON.parse(responseText);
+  } catch(e) {
+    console.error('Response bukan JSON:', responseText);
+    throw new Error('Server mengembalikan response tidak valid');
   }
 
-  const json = await res.json();
   onProgress && onProgress(100);
 
   if (!json.ok) {
+    console.error('Upload gagal:', json.error);
     throw new Error(json.error || 'Upload gagal');
   }
   
-  console.log('Upload sukses:', {
-    fileId: json.fileId,
-    fileName: json.namaFile,
-    url: json.fileUrl
-  });
-  
+  console.log('Upload berhasil:', json);
   return json;
 }
 
     // Hapus file dari Google Drive via Apps Script
-    async function deleteFromDrive(fileId) {
+  async function deleteFromDrive(fileId) {
   if (!fileId) return;
   try {
-    const formBody = new URLSearchParams();
-    formBody.append('action', 'delete');
-    formBody.append('fileId', fileId);
+    const params = new URLSearchParams();
+    params.append('action', 'delete');
+    params.append('fileId', fileId);
     
     await fetch(DRIVE_API, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: formBody.toString()
+      body: params.toString()
     });
-  } catch(e) {
-    console.warn('Gagal hapus dari Drive:', e);
-  }
+  } catch(e) { console.warn('Gagal hapus dari Drive:', e); }
 }
 
     // Expose ke window supaya bisa dipakai di fungsi non-module
@@ -1504,17 +1504,14 @@
     };
     // Fungsi test koneksi Google Drive
 window.testDriveConnection = async () => {
-  toast('🔍 Mengecek koneksi Google Drive...');
+  toast('🔍 Mengecek koneksi...');
   
   try {
-    // Test 1: Cek apakah API merespon
-    console.log('=== TEST DRIVE API ===');
-    console.log('URL:', DRIVE_API);
-    
     const params = new URLSearchParams();
     params.append('action', 'test');
     
-    console.log('Mengirim request test...');
+    console.log('Test URL:', DRIVE_API);
+    
     const res = await fetch(DRIVE_API, {
       method: 'POST',
       headers: {
@@ -1523,24 +1520,24 @@ window.testDriveConnection = async () => {
       body: params.toString()
     });
     
-    console.log('Response status:', res.status);
+    console.log('Status:', res.status);
     
-    const json = await res.json();
-    console.log('Response body:', json);
+    const text = await res.text();
+    console.log('Response:', text);
+    
+    const json = JSON.parse(text);
     
     if (json.ok) {
-      toast('✅ Google Drive API terhubung! Folder ID: ' + (json.folderId || 'OK'));
-      console.log('✅ TEST BERHASIL');
+      toast('✅ Drive API OK!');
     } else {
-      toast('❌ Error: ' + (json.error || 'Unknown'));
-      console.error('❌ TEST GAGAL:', json.error);
+      toast('❌ Error: ' + json.error);
     }
-    
   } catch(e) {
-    console.error('❌ GAGAL KONEK:', e.message);
-    toast('❌ Gagal: ' + e.message);
+    console.error('Error:', e);
+    toast('❌ ' + e.message);
   }
 };
+    
     window.closeModal=()=>{document.getElementById('modalBg').classList.remove('open');document.body.style.overflow='';};
     window.openModal=(title,content)=>{
       document.getElementById('modalBox').innerHTML=`
