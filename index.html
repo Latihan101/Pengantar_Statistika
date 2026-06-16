@@ -747,6 +747,16 @@ window._deleteFromDrive = deleteFromCloudinary;
             const batas = t.batasWaktu ? new Date(t.batasWaktu) : null;
             const terlambat = batas && new Date() > batas;
             const batasStr = batas ? batas.toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Tidak ada batas';
+
+            // bisaEdit: sudah kumpul DAN belum melewati batas waktu
+            const bisaEdit = sudahKumpul && !terlambat;
+            const catatanLama = (kumpulData?.catatan || '').replace(/"/g,'&quot;');
+            const namaFileLama = kumpulData?.namaFile || '';
+            const fileUrlLama = (kumpulData?.fileUrl || '').replace(/'/g,"\\'");
+            const fileIdLama = (kumpulData?.fileId || '').replace(/'/g,"\\'");
+            const viewUrlLama = (kumpulData?.viewUrl || '').replace(/'/g,"\\'");
+            const namaFileLamaEsc = namaFileLama.replace(/'/g,"\\'");
+
             html += `
               <div class="tugas-card">
                 <div class="tugas-card-header">
@@ -761,30 +771,45 @@ window._deleteFromDrive = deleteFromCloudinary;
                       : `<span class="badge badge-yellow">⏳ Belum Kumpul</span>`}
                 </div>
                 <div class="tugas-deskripsi">${t.deskripsi||''}</div>
-                ${sudahKumpul
-                  ? `<div class="kumpul-info">
-                      <div style="font-size:12px;color:var(--g);font-weight:600">✅ Tugas sudah dikumpulkan</div>
-                      ${kumpulData?.namaFile?`<div style="font-size:12px;color:var(--muted);margin-top:4px">📎 ${kumpulData.namaFile}</div>`:''}
-                      ${kumpulData?.fileUrl?`<a href="${kumpulData.fileUrl}" target="_blank" class="btn-action btn-primary" style="margin-top:8px;display:inline-flex">${svgIcon('download')} Lihat File Saya</a>`:''}
-                      ${kumpulData?.catatan?`<div style="font-size:12px;color:var(--ink2);margin-top:4px">"${kumpulData.catatan}"</div>`:''}
-                    </div>`
-                  : `<div class="kumpul-form" id="kumpulForm_${t.id}">
-                      <textarea class="inp" id="kumpulCatatan_${t.id}" placeholder="Catatan / komentar (opsional)..." style="resize:vertical;min-height:60px;margin-top:10px"></textarea>
-                      <div style="margin-bottom:10px">
-                        <label class="upload-area" style="padding:16px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center" for="kumpulFile_${t.id}">
-                          ${svgIcon('upload')}<span id="kumpulFileLabel_${t.id}">Lampirkan file tugas ke Google Drive (opsional)</span>
-                          <input type="file" id="kumpulFile_${t.id}" style="display:none" onchange="previewKumpulFile('${t.id}',this)">
-                        </label>
+
+                ${sudahKumpul ? `
+                  <div class="kumpul-info" id="kumpulInfo_${t.id}">
+                    <div style="font-size:12px;color:var(--g);font-weight:600">✅ Tugas sudah dikumpulkan</div>
+                    ${kumpulData?.namaFile?`<div style="font-size:12px;color:var(--muted);margin-top:4px">📎 ${kumpulData.namaFile}</div>`:''}
+                    ${kumpulData?.fileUrl?`<a href="${kumpulData.fileUrl}" target="_blank" class="btn-action btn-primary" style="margin-top:8px;display:inline-flex">${svgIcon('download')} Lihat File Saya</a>`:''}
+                    ${kumpulData?.catatan?`<div style="font-size:12px;color:var(--ink2);margin-top:4px">"${kumpulData.catatan}"</div>`:''}
+                    ${bisaEdit ? `
+                      <div>
+                        <button class="btn-action btn-secondary" style="margin-top:10px" onclick="toggleEditTugas('${t.id}')">
+                          ${svgIcon('edit')} Edit Jawaban
+                        </button>
+                        <div style="font-size:11px;color:var(--muted);margin-top:6px">Kamu masih bisa mengubah jawaban sebelum batas waktu berakhir.</div>
                       </div>
-                      <div id="kumpulProgress_${t.id}" style="display:none" class="upload-progress">
-                        <div class="progress-bar"><div class="progress-fill" id="kumpulProgressFill_${t.id}"></div></div>
-                        <div class="progress-txt" id="kumpulProgressTxt_${t.id}">Mengupload ke Google Drive...</div>
-                      </div>
-                      <button class="btn-submit" ${terlambat?'style="background:#d97706"':''} onclick="kumpulTugas('${t.id}')">
-                        ${terlambat?'⏰ Kumpul (Terlambat)':'📤 Kumpulkan Tugas'}
-                      </button>
-                    </div>`
-                }
+                    ` : `
+                      <div style="font-size:11px;color:var(--muted);margin-top:8px">Waktu pengumpulan telah berakhir, jawaban tidak bisa diubah lagi.</div>
+                    `}
+                  </div>
+                ` : ''}
+
+                <div class="kumpul-form" id="kumpulForm_${t.id}" style="${sudahKumpul ? 'display:none' : ''}">
+                  <textarea class="inp" id="kumpulCatatan_${t.id}" placeholder="Catatan / komentar (opsional)..." style="resize:vertical;min-height:60px;margin-top:10px">${sudahKumpul ? catatanLama : ''}</textarea>
+                  <div style="margin-bottom:10px">
+                    <label class="upload-area" style="padding:16px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center" for="kumpulFile_${t.id}">
+                      ${svgIcon('upload')}<span id="kumpulFileLabel_${t.id}">${namaFileLama ? '📎 '+namaFileLama+' (klik untuk ganti file)' : 'Lampirkan file tugas (opsional)'}</span>
+                      <input type="file" id="kumpulFile_${t.id}" style="display:none" onchange="previewKumpulFile('${t.id}',this)">
+                    </label>
+                  </div>
+                  <div id="kumpulProgress_${t.id}" style="display:none" class="upload-progress">
+                    <div class="progress-bar"><div class="progress-fill" id="kumpulProgressFill_${t.id}"></div></div>
+                    <div class="progress-txt" id="kumpulProgressTxt_${t.id}">Mengupload...</div>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <button class="btn-submit" ${terlambat?'style="background:#d97706"':''} onclick="kumpulTugas('${t.id}','${fileUrlLama}','${namaFileLamaEsc}','${fileIdLama}','${viewUrlLama}')">
+                      ${sudahKumpul ? '💾 Simpan Perubahan' : (terlambat ? '⏰ Kumpul (Terlambat)' : '📤 Kumpulkan Tugas')}
+                    </button>
+                    ${sudahKumpul ? `<button class="btn-action btn-secondary" onclick="toggleEditTugas('${t.id}')">Batal</button>` : ''}
+                  </div>
+                </div>
               </div>`;
           }
           html += `</div>`;
@@ -819,63 +844,73 @@ window._deleteFromDrive = deleteFromCloudinary;
       if(label) label.textContent = '📎 ' + file.name;
     };
 
-    // ══ KUMPUL TUGAS → Upload ke Google Drive ══
-window.kumpulTugas = async(tugasId) => {
-  const catatanEl = document.getElementById('kumpulCatatan_' + tugasId);
-  const fileInput = document.getElementById('kumpulFile_' + tugasId);
-  
-  // Guard: pastikan form masih ada di DOM
-  if (!catatanEl) {
-    toast('❌ Form tidak ditemukan, coba refresh halaman');
-    return;
-  }
-  
-  const catatan = catatanEl.value.trim() || '';
-  const file = fileInput?.files[0];
+    // Toggle antara tampilan "info pengumpulan" dan "form edit"
+    window.toggleEditTugas = (tugasId)=>{
+      const info = document.getElementById('kumpulInfo_'+tugasId);
+      const form = document.getElementById('kumpulForm_'+tugasId);
+      if(!form) return;
+      const showForm = form.style.display === 'none';
+      form.style.display = showForm ? 'block' : 'none';
+      if(info) info.style.display = showForm ? 'none' : 'block';
+    };
 
-  const doSave = async(fileUrl, namaFile, fileId, viewUrl) => {
-    await setDoc(doc(db, 'pertemuan', _prt.id, 'tugas', tugasId, 'pengumpulan', user.id), {
-      mahasiswaId: user.id, nama: user.nama, nim: user.nim || '-',
-      catatan,
-      fileUrl: fileUrl || null,
-      namaFile: namaFile || null,
-      fileId: fileId || null,
-      viewUrl: viewUrl || null,
-      waktuKumpul: serverTimestamp()
-    });
-    toast('✅ Tugas berhasil dikumpulkan!');
-    await renderTugasTab();
-  };
+    // ══ KUMPUL / EDIT TUGAS → Upload ke Cloudinary ══
+    // oldFileUrl/oldNamaFile/oldFileId/oldViewUrl: data file yang sudah ada sebelumnya (untuk edit),
+    // dikirim kosong ('') saat submit pertama kali.
+    window.kumpulTugas = async(tugasId, oldFileUrl, oldNamaFile, oldFileId, oldViewUrl) => {
+      const catatanEl = document.getElementById('kumpulCatatan_' + tugasId);
+      const fileInput = document.getElementById('kumpulFile_' + tugasId);
 
-  if (file) {
-    const prog = document.getElementById('kumpulProgress_' + tugasId);
-    const fill = document.getElementById('kumpulProgressFill_' + tugasId);
-    const txt = document.getElementById('kumpulProgressTxt_' + tugasId);
-    
-    // Disable tombol submit agar tidak double-submit
-    const submitBtn = document.querySelector(`[onclick="kumpulTugas('${tugasId}')"]`);
-    if (submitBtn) submitBtn.disabled = true;
-    
-    if (prog) prog.style.display = 'block';
+      if (!catatanEl) {
+        toast('❌ Form tidak ditemukan, coba refresh halaman');
+        return;
+      }
 
-    try {
-      const subFolder = 'tugas_' + _prt.id + '_' + tugasId;
-      const result = await window._uploadToDrive(file, subFolder, (pct) => {
-        if (fill) fill.style.width = pct + '%';
-        if (txt) txt.textContent = 'Mengupload ke Google Drive ' + pct + '%...';
-      });
-      await doSave(result.fileUrl, file.name, result.fileId, result.viewUrl);
-    } catch(e) {
-      toast('❌ Upload gagal: ' + e.message);
-      if (prog) prog.style.display = 'none';
-      if (submitBtn) submitBtn.disabled = false;  // re-enable tombol
-    }
-  } else {
-    // Tanpa file, langsung simpan
-    await doSave(null, null, null, null);
-  }
-};
-    
+      const catatan = catatanEl.value.trim() || '';
+      const file = fileInput?.files[0];
+
+      const doSave = async(fileUrl, namaFile, fileId, viewUrl) => {
+        await setDoc(doc(db, 'pertemuan', _prt.id, 'tugas', tugasId, 'pengumpulan', user.id), {
+          mahasiswaId: user.id, nama: user.nama, nim: user.nim || '-',
+          catatan,
+          fileUrl: fileUrl || null,
+          namaFile: namaFile || null,
+          fileId: fileId || null,
+          viewUrl: viewUrl || null,
+          waktuKumpul: serverTimestamp()
+        });
+        toast('✅ Jawaban tersimpan!');
+        await renderTugasTab();
+      };
+
+      if (file) {
+        // Ada file baru dipilih -> upload, gantikan file lama (file lama jadi orphan di Cloudinary)
+        const prog = document.getElementById('kumpulProgress_' + tugasId);
+        const fill = document.getElementById('kumpulProgressFill_' + tugasId);
+        const txt = document.getElementById('kumpulProgressTxt_' + tugasId);
+
+        const submitBtn = document.querySelector(`[onclick^="kumpulTugas('${tugasId}'"]`);
+        if (submitBtn) submitBtn.disabled = true;
+
+        if (prog) prog.style.display = 'block';
+
+        try {
+          const subFolder = 'tugas_' + _prt.id + '_' + tugasId;
+          const result = await window._uploadToDrive(file, subFolder, (pct) => {
+            if (fill) fill.style.width = pct + '%';
+            if (txt) txt.textContent = 'Mengupload ' + pct + '%...';
+          });
+          await doSave(result.fileUrl, file.name, result.fileId, result.viewUrl);
+        } catch(e) {
+          toast('❌ Upload gagal: ' + e.message);
+          if (prog) prog.style.display = 'none';
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      } else {
+        // Tidak pilih file baru -> pertahankan file lama (kalau sedang edit) atau null (submit pertama kali)
+        await doSave(oldFileUrl || null, oldNamaFile || null, oldFileId || null, oldViewUrl || null);
+      }
+    };
 
     window.lihatPengumpulan = async(tugasId, judulTugas)=>{
       const snap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas',tugasId,'pengumpulan'));
