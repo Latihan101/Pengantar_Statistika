@@ -4,34 +4,36 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>EduCampus • Firebase</title>
-  <!-- Firebase SDK -->
+  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
+  <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
     import { getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, collection, query, where, orderBy, serverTimestamp, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
     // ── GANTI dengan konfigurasi Firebase kamu ────────────────────
     const firebaseConfig = {
-  apiKey: "AIzaSyCKqz6WFohckcvdFYt0YSeXP6GyGvFkHq0",
-  authDomain: "edu-campus-6aa80.firebaseapp.com",
-  projectId: "edu-campus-6aa80",
-  storageBucket: "edu-campus-6aa80.firebasestorage.app",
-  messagingSenderId: "1077240003890",
-  appId: "1:1077240003890:web:f793d089358f8b49fcab2b",
-  measurementId: "G-YJKDPXSRDG"
-};
+      apiKey: "AIzaSyCKqz6WFohckcvdFYt0YSeXP6GyGvFkHq0",
+      authDomain: "edu-campus-6aa80.firebaseapp.com",
+      projectId: "edu-campus-6aa80",
+      storageBucket: "edu-campus-6aa80.firebasestorage.app",
+      messagingSenderId: "1077240003890",
+      appId: "1:1077240003890:web:f793d089358f8b49fcab2b",
+      measurementId: "G-YJKDPXSRDG"
+    };
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
-    window.db = db;
-    window.auth = auth;
+    const storage = getStorage(app);
+    window.db = db; window.auth = auth; window.storage = storage;
 
-    // ── Variabel global ───────────────────────────────────────
     let user = null, config = {}, _prt = null;
-    let _kuisTimer = null, _kuisJawaban = {};
     let _unsubNotif = null, _unsubAbsensi = null;
     let authRole = 'mahasiswa', showReg = false;
+    let _quill = null;
 
     // ── Auth observer ─────────────────────────────────────────
     onAuthStateChanged(auth, async (firebaseUser) => {
@@ -40,37 +42,23 @@
         if (snap.exists()) {
           user = { id: firebaseUser.uid, ...snap.data() };
           startApp(user);
-        } else {
-          await signOut(auth);
-          showLogin();
-        }
-      } else {
-        user = null;
-        showLogin();
-      }
+        } else { await signOut(auth); showLogin(); }
+      } else { user = null; showLogin(); }
     });
 
-    // ── Tampilkan layar ──────────────────────────────────────
     function showLogin() {
       document.getElementById('app').style.display = 'none';
       document.getElementById('screen-login').style.display = 'flex';
-      document.getElementById('screen-setup').style.display = 'none';
-      if (_unsubNotif) { _unsubNotif(); _unsubNotif = null; }
-      if (_unsubAbsensi) { _unsubAbsensi(); _unsubAbsensi = null; }
     }
 
     async function startApp(u) {
       user = u;
       document.getElementById('screen-login').style.display = 'none';
-      document.getElementById('screen-setup').style.display = 'none';
       const initials = (u.nama||'').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
       document.getElementById('sbAv').textContent = initials;
       document.getElementById('sbName').textContent = u.nama;
       document.getElementById('sbRole').textContent = u.role === 'dosen' ? '👨‍🏫 Dosen' : '🎓 NIM ' + (u.nim||'-');
-      try {
-        const snap = await getDoc(doc(db, 'config', 'appConfig'));
-        if (snap.exists()) config = snap.data();
-      } catch(e) { console.warn('Config load failed'); }
+      try { const s = await getDoc(doc(db,'config','appConfig')); if(s.exists()) config = s.data(); } catch(e) {}
       buildNav();
       document.getElementById('app').style.display = 'flex';
       go('dashboard');
@@ -90,14 +78,12 @@
       const nav = user.role === 'dosen' ? dsn : mhs;
       document.getElementById('navMenu').innerHTML =
         '<div class="nav-sec">Menu</div>' +
-        nav.map(n => `<div class="nav-item" id="nav-${n.p}" onclick="go('${n.p}');closeSidebar()"><span class="nav-ico">${n.i}</span>${n.l}</div>`).join('') +
+        nav.map(n=>`<div class="nav-item" id="nav-${n.p}" onclick="go('${n.p}');closeSidebar()"><span class="nav-ico">${n.i}</span>${n.l}</div>`).join('') +
         `<div class="nav-item" onclick="doLogout()"><span class="nav-ico">🚪</span>Keluar</div>`;
-      const bnKeys = user.role === 'dosen'
-        ? ['dashboard','pertemuan','nilai_dsn','notifikasi']
-        : ['dashboard','pertemuan','absensi_mhs','nilai_mhs'];
-      const bnItems = nav.filter(n => bnKeys.includes(n.p));
+      const bnKeys = user.role==='dosen' ? ['dashboard','pertemuan','nilai_dsn','notifikasi'] : ['dashboard','pertemuan','absensi_mhs','nilai_mhs'];
+      const bnItems = nav.filter(n=>bnKeys.includes(n.p));
       document.getElementById('bottomNav').innerHTML =
-        `<div class="bn-items">${bnItems.map(n => `<div class="bn-item" id="bn-${n.p}" onclick="go('${n.p}')"><div class="bn-ico">${n.i}</div><div>${n.l}</div></div>`).join('')}<div class="bn-item" onclick="doLogout()"><div class="bn-ico">🚪</div><div>Keluar</div></div></div>`;
+        `<div class="bn-items">${bnItems.map(n=>`<div class="bn-item" id="bn-${n.p}" onclick="go('${n.p}')"><div class="bn-ico">${n.i}</div><div>${n.l}</div></div>`).join('')}<div class="bn-item" onclick="doLogout()"><div class="bn-ico">🚪</div><div>Keluar</div></div></div>`;
     }
 
     const TITLES = {
@@ -106,9 +92,9 @@
       absensi_mhs:'Absensi Saya',nilai_mhs:'Nilai Saya',
     };
 
-    window.go = function(page, params = {}) {
-      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('on'));
-      document.querySelectorAll('.bn-item').forEach(n => n.classList.remove('on'));
+    window.go = function(page, params={}) {
+      document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('on'));
+      document.querySelectorAll('.bn-item').forEach(n=>n.classList.remove('on'));
       document.getElementById('nav-'+page)?.classList.add('on');
       document.getElementById('bn-'+page)?.classList.add('on');
       document.getElementById('pageTitle').textContent = TITLES[page]||page;
@@ -123,73 +109,61 @@
     };
 
     function setContent(h) { document.getElementById('content').innerHTML = h; }
-    window.openSidebar = () => { document.getElementById('sidebar').classList.add('open'); document.getElementById('sbOverlay').classList.add('show'); document.body.style.overflow='hidden'; };
-    window.closeSidebar = () => { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sbOverlay').classList.remove('show'); document.body.style.overflow=''; };
+    window.openSidebar = ()=>{ document.getElementById('sidebar').classList.add('open'); document.getElementById('sbOverlay').classList.add('show'); document.body.style.overflow='hidden'; };
+    window.closeSidebar = ()=>{ document.getElementById('sidebar').classList.remove('open'); document.getElementById('sbOverlay').classList.remove('show'); document.body.style.overflow=''; };
 
     // ── AUTH ──────────────────────────────────────────────────
-    window.setRole = (r) => {
-      authRole = r;
-      document.getElementById('tabM').classList.toggle('on', r==='mahasiswa');
-      document.getElementById('tabD').classList.toggle('on', r==='dosen');
-      document.getElementById('switchLink').style.display = r==='dosen' ? 'none' : 'block';
-      document.getElementById('dosenInfo').style.display = r==='dosen' ? 'block' : 'none';
-      if (r==='dosen' && showReg) { showReg=false; document.getElementById('fLogin').style.display='block'; document.getElementById('fReg').style.display='none'; }
+    window.setRole = (r)=>{
+      authRole=r;
+      document.getElementById('tabM').classList.toggle('on',r==='mahasiswa');
+      document.getElementById('tabD').classList.toggle('on',r==='dosen');
+      document.getElementById('switchLink').style.display=r==='dosen'?'none':'block';
+      document.getElementById('dosenInfo').style.display=r==='dosen'?'block':'none';
+      if(r==='dosen'&&showReg){showReg=false;document.getElementById('fLogin').style.display='block';document.getElementById('fReg').style.display='none';}
       clearMsg();
     };
-    window.toggleReg = () => { if(authRole==='dosen') return; showReg=!showReg; document.getElementById('fLogin').style.display=showReg?'none':'block'; document.getElementById('fReg').style.display=showReg?'block':'none'; clearMsg(); };
-    function clearMsg() { ['authErr','authOk'].forEach(id=>{ const e=document.getElementById(id); e.style.display='none'; }); }
-    window.doLogin = async () => {
-      clearMsg(); const email=document.getElementById('lEmail').value.trim(), pw=document.getElementById('lPass').value;
-      if(!email||!pw) return showErr('Isi email dan password');
-      try {
-        await signInWithEmailAndPassword(auth, email, pw);
-      } catch(e) { showErr('Login gagal: '+e.message); }
+    window.toggleReg=()=>{if(authRole==='dosen')return;showReg=!showReg;document.getElementById('fLogin').style.display=showReg?'none':'block';document.getElementById('fReg').style.display=showReg?'block':'none';clearMsg();};
+    function clearMsg(){['authErr','authOk'].forEach(id=>{const e=document.getElementById(id);e.style.display='none';});}
+    window.doLogin=async()=>{
+      clearMsg();const email=document.getElementById('lEmail').value.trim(),pw=document.getElementById('lPass').value;
+      if(!email||!pw)return showErr('Isi email dan password');
+      try{await signInWithEmailAndPassword(auth,email,pw);}catch(e){showErr('Login gagal: '+e.message);}
     };
-    window.doRegister = async () => {
-      clearMsg(); const nama=v('rNama'),nim=v('rNim'),email=v('rEmail'),pw=v('rPass'),sem=v('rSem'),prodi=v('rProdi');
-      if(!nama||!nim||!email||!pw) return showErr('Semua field wajib diisi');
-      if(pw.length<6) return showErr('Password minimal 6 karakter');
-      try {
-        const cred = await createUserWithEmailAndPassword(auth, email, pw);
-        await setDoc(doc(db,'users',cred.user.uid), {
-          nama,nim,email,role:'mahasiswa',semester:parseInt(sem)||1,prodi,createdAt:new Date()
-        });
-        showOk('Akun berhasil dibuat! Silakan login.');
-        toggleReg();
-      } catch(e) { showErr('Gagal: '+e.message); }
+    window.doRegister=async()=>{
+      clearMsg();const nama=v('rNama'),nim=v('rNim'),email=v('rEmail'),pw=v('rPass'),sem=v('rSem'),prodi=v('rProdi');
+      if(!nama||!nim||!email||!pw)return showErr('Semua field wajib diisi');
+      if(pw.length<6)return showErr('Password minimal 6 karakter');
+      try{
+        const cred=await createUserWithEmailAndPassword(auth,email,pw);
+        await setDoc(doc(db,'users',cred.user.uid),{nama,nim,email,role:'mahasiswa',semester:parseInt(sem)||1,prodi,createdAt:new Date()});
+        showOk('Akun berhasil dibuat! Silakan login.');toggleReg();
+      }catch(e){showErr('Gagal: '+e.message);}
     };
-    window.doLogout = async () => {
-      if(_unsubNotif){_unsubNotif();_unsubNotif=null;}
-      if(_unsubAbsensi){_unsubAbsensi();_unsubAbsensi=null;}
-      await signOut(auth);
-    };
+    window.doLogout=async()=>{if(_unsubNotif){_unsubNotif();_unsubNotif=null;}await signOut(auth);};
     function showErr(m){const e=document.getElementById('authErr');e.textContent=m;e.style.display='block';}
     function showOk(m){const e=document.getElementById('authOk');e.textContent=m;e.style.display='block';}
 
     // ── DASHBOARD ─────────────────────────────────────────────
-    async function renderDashboard() {
-      const isDsn = user.role==='dosen';
+    async function renderDashboard(){
+      const isDsn=user.role==='dosen';
       if(isDsn){
-        const mhsSnap = await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
-        const prtSnap = await getDocs(collection(db,'pertemuan'));
-        const totalMhs = mhsSnap.size, totalPrt = prtSnap.size;
+        const mhsSnap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
+        const prtSnap=await getDocs(collection(db,'pertemuan'));
         setContent(`
           <div class="stats-grid">
-            <div class="stat-card"><div class="stat-ico" style="background:var(--pl)">👥</div><div class="stat-lbl">Mahasiswa</div><div class="stat-val">${totalMhs}</div><div class="stat-sub">Terdaftar</div></div>
-            <div class="stat-card"><div class="stat-ico" style="background:#ecfdf5">📅</div><div class="stat-lbl">Pertemuan</div><div class="stat-val">${totalPrt}</div><div class="stat-sub">dari 16</div></div>
+            <div class="stat-card"><div class="stat-ico" style="background:var(--pl)">👥</div><div class="stat-lbl">Mahasiswa</div><div class="stat-val">${mhsSnap.size}</div><div class="stat-sub">Terdaftar</div></div>
+            <div class="stat-card"><div class="stat-ico" style="background:#ecfdf5">📅</div><div class="stat-lbl">Pertemuan</div><div class="stat-val">${prtSnap.size}</div><div class="stat-sub">dari 16</div></div>
             <div class="stat-card"><div class="stat-ico" style="background:var(--ab)">📚</div><div class="stat-lbl">Matkul</div><div class="stat-val" style="font-size:13px">${config.NAMA_MATKUL||'-'}</div><div class="stat-sub">${config.SKS||0} SKS</div></div>
             <div class="stat-card"><div class="stat-ico" style="background:#eff6ff">🏫</div><div class="stat-lbl">Jadwal</div><div class="stat-val" style="font-size:12px">${config.JADWAL||'-'}</div><div class="stat-sub">${config.RUANG||''}</div></div>
-          </div>
-          <div class="card"><div class="card-hd"><div class="card-title">📊 Quick Stats</div></div><div class="empty"><p>Dashboard ringkas siap.</p></div></div>`);
+          </div>`);
       } else {
-        const absSnap = await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id)));
-        const hadir = absSnap.docs.filter(d=>d.data().status==='hadir').length;
-        const total = absSnap.size;
-        const nilaiSnap = await getDoc(doc(db,'nilai_akhir',user.id));
-        const n = nilaiSnap.exists()?nilaiSnap.data():{};
+        const absSnap=await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id)));
+        const hadir=absSnap.docs.filter(d=>d.data().status==='hadir').length;
+        const nilaiSnap=await getDoc(doc(db,'nilai_akhir',user.id));
+        const n=nilaiSnap.exists()?nilaiSnap.data():{};
         setContent(`
           <div class="stats-grid">
-            <div class="stat-card"><div class="stat-ico" style="background:var(--pl)">✋</div><div class="stat-lbl">Hadir</div><div class="stat-val">${hadir}/${total}</div></div>
+            <div class="stat-card"><div class="stat-ico" style="background:var(--pl)">✋</div><div class="stat-lbl">Hadir</div><div class="stat-val">${hadir}/${absSnap.size}</div></div>
             <div class="stat-card"><div class="stat-ico" style="background:#ecfdf5">📝</div><div class="stat-lbl">Tugas</div><div class="stat-val">-</div></div>
             <div class="stat-card"><div class="stat-ico" style="background:var(--ab)">🏆</div><div class="stat-lbl">Nilai</div><div class="stat-val">${n.nilaiAkhir||'-'}</div></div>
             <div class="stat-card"><div class="stat-ico" style="background:#eff6ff">📅</div><div class="stat-lbl">Materi</div><div class="stat-val">16</div></div>
@@ -198,47 +172,281 @@
     }
 
     // ── PERTEMUAN ────────────────────────────────────────────
-    async function renderPertemuan() {
-      const snap = await getDocs(collection(db,'pertemuan'));
-      const prts = []; snap.forEach(d=>prts.push({id:d.id,...d.data()}));
-      setContent(`<div class="prt-grid">${prts.map(p=>`<div class="prt-card" onclick="bukaPrt('${p.id}')"><div class="prt-num">Prt ${p.pertemuanKe}</div><div class="prt-topik">${p.topik||'—'}</div></div>`).join('')}</div>`);
+    async function renderPertemuan(){
+      const snap=await getDocs(collection(db,'pertemuan'));
+      const prts=[];snap.forEach(d=>prts.push({id:d.id,...d.data()}));
+      prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
+      if(prts.length===0){setContent('<div class="empty"><div class="emo">📅</div><h3>Belum ada pertemuan</h3></div>');return;}
+      setContent(`<div class="prt-grid">${prts.map(p=>`
+        <div class="prt-card" onclick="bukaPrt('${p.id}')">
+          <div class="prt-badge">Prt ${p.pertemuanKe}</div>
+          <div class="prt-topik">${p.topik||'—'}</div>
+        </div>`).join('')}</div>`);
     }
-    window.bukaPrt = async (prtId) => {
-      const snap = await getDoc(doc(db,'pertemuan',prtId));
-      if(snap.exists()) { _prt = {id:prtId,...snap.data()}; renderPrtDetail(_prt,'materi'); }
-    };
-    function renderPrtDetail(p,tab){ /* sederhana, arahkan ke tab */ setContent(`<div class="dtabs">${['materi','tugas','kuis','absensi'].map(t=>`<div class="dtab ${t===tab?'on':''}" onclick="loadTab('${t}')">${t}</div>`).join('')}</div><div id="tabContent"><div class="loading">⏳</div></div>`); loadTab(tab); }
-    window.loadTab = async (tab) => {
-      if(!_prt) return;
-      if(tab==='materi'){ const snap=await getDocs(collection(db,'pertemuan',_prt.id,'materi')); let h=''; snap.forEach(d=>h+=`<div>${d.data().judul}</div>`); document.getElementById('tabContent').innerHTML=h||'Kosong'; }
-      else if(tab==='tugas'){ document.getElementById('tabContent').innerHTML='<p>Tugas (siap dikembangkan)</p>'; }
-      else if(tab==='kuis'){ document.getElementById('tabContent').innerHTML='<p>Kuis (siap dikembangkan)</p>'; }
-      else if(tab==='absensi'){ document.getElementById('tabContent').innerHTML='<p>Absensi (siap dikembangkan)</p>'; }
+
+    window.bukaPrt=async(prtId)=>{
+      const snap=await getDoc(doc(db,'pertemuan',prtId));
+      if(snap.exists()){_prt={id:prtId,...snap.data()};renderPrtDetail(_prt,'materi');}
     };
 
-    // ── HALAMAN LAIN (placeholder) ──────────────────────────
-    async function renderMahasiswa(){ setContent('<div class="card"><div class="card-hd"><div class="card-title">👥 Mahasiswa</div></div><div class="empty"><p>Fitur lengkap dapat dikembangkan dari template ini.</p></div></div>'); }
-    async function renderNilaiDsn(){ setContent('<div class="card"><div class="card-hd"><div class="card-title">✏️ Input Nilai</div></div><div class="empty"><p>Form input nilai lengkap.</p></div></div>'); }
-    async function renderNotifikasi(){ setContent('<div class="card"><div class="card-hd"><div class="card-title">🔔 Notifikasi</div></div><div class="empty"><p>Notifikasi real-time.</p></div></div>'); }
-    async function renderProfil(){ setContent(`<div class="card"><div style="padding:20px"><h3>${user.nama}</h3><p>${user.email}</p></div></div>`); }
-    async function renderAbsensiMhs(){ setContent('<div class="card"><div class="card-hd"><div class="card-title">✋ Absensi Saya</div></div></div>'); }
-    async function renderNilaiMhs(){ setContent('<div class="card"><div class="card-hd"><div class="card-title">📊 Nilai Saya</div></div></div>'); }
+    function renderPrtDetail(p,tab){
+      const tabs=['materi','tugas','kuis','absensi'];
+      setContent(`
+        <div class="prt-detail-header">
+          <button class="btn-back" onclick="go('pertemuan')">← Kembali</button>
+          <h2>Pertemuan ${p.pertemuanKe}: ${p.topik||''}</h2>
+        </div>
+        <div class="dtabs">${tabs.map(t=>`<div class="dtab${t===tab?' on':''}" onclick="loadTab('${t}')">${t.charAt(0).toUpperCase()+t.slice(1)}</div>`).join('')}</div>
+        <div id="tabContent"><div class="loading">⏳</div></div>`);
+      loadTab(tab);
+    }
 
-    // ── UTILITAS ────────────────────────────────────────────
-    function v(id){ return document.getElementById(id)?.value||''; }
-    window.toast = (msg) => {
-      const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
-      clearTimeout(window._tToast); window._tToast=setTimeout(()=>t.classList.remove('show'),2800);
-    };
-    window.closeModal = () => { document.getElementById('modalBg').classList.remove('open'); document.body.style.overflow=''; };
-    window.openModal = (title,content) => {
-      document.getElementById('modalBox').innerHTML=`<div class="modal-title">${title}<button class="modal-x" onclick="closeModal()">×</button></div>${content}`;
-      document.getElementById('modalBg').classList.add('open'); document.body.style.overflow='hidden';
+    window.loadTab=async(tab)=>{
+      if(!_prt)return;
+      // update active tab UI
+      document.querySelectorAll('.dtab').forEach(t=>t.classList.remove('on'));
+      document.querySelectorAll('.dtab').forEach(t=>{if(t.textContent.toLowerCase()===tab)t.classList.add('on');});
+
+      if(tab==='materi') await renderMateriTab();
+      else if(tab==='tugas') document.getElementById('tabContent').innerHTML='<div class="empty"><div class="emo">📝</div><h3>Fitur Tugas</h3><p>Segera hadir</p></div>';
+      else if(tab==='kuis') document.getElementById('tabContent').innerHTML='<div class="empty"><div class="emo">❓</div><h3>Fitur Kuis</h3><p>Segera hadir</p></div>';
+      else if(tab==='absensi') document.getElementById('tabContent').innerHTML='<div class="empty"><div class="emo">✋</div><h3>Fitur Absensi</h3><p>Segera hadir</p></div>';
     };
 
-    // ── Inisialisasi tampilan awal ─────────────────────────
-    document.getElementById('screen-setup').style.display = 'none';
-    document.getElementById('screen-login').style.display = 'flex';
+    // ── MATERI TAB ───────────────────────────────────────────
+    async function renderMateriTab(){
+      const isDsn=user.role==='dosen';
+      const snap=await getDocs(collection(db,'pertemuan',_prt.id,'materi'));
+      const items=[];snap.forEach(d=>items.push({id:d.id,...d.data()}));
+      items.sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));
+
+      let html=`<div id="materi-list">`;
+      if(items.length===0){
+        html+=`<div class="empty"><div class="emo">📄</div><h3>Belum ada materi</h3>${isDsn?'<p>Tambahkan materi di bawah.</p>':''}</div>`;
+      } else {
+        items.forEach(m=>{
+          if(m.tipe==='file'){
+            const icon=getFileIcon(m.namaFile||'');
+            html+=`<div class="materi-item">
+              <div class="materi-icon">${icon}</div>
+              <div class="materi-info">
+                <div class="materi-judul">${m.judul}</div>
+                <div class="materi-meta">${m.namaFile||''} • ${m.ukuran||''}</div>
+              </div>
+              <div class="materi-actions">
+                <a href="${m.fileUrl}" target="_blank" class="btn-dl">⬇ Unduh</a>
+                ${isDsn?`<button class="btn-del-materi" onclick="hapusMateri('${m.id}','${m.filePath||''}')">🗑</button>`:''}
+              </div>
+            </div>`;
+          } else if(m.tipe==='teks'){
+            html+=`<div class="materi-item materi-teks-item">
+              <div class="materi-icon">📝</div>
+              <div class="materi-info">
+                <div class="materi-judul">${m.judul}</div>
+                <div class="materi-meta">Konten teks</div>
+              </div>
+              <div class="materi-actions">
+                <button class="btn-dl" onclick="bacaMateriTeks('${m.id}')">📖 Baca</button>
+                ${isDsn?`<button class="btn-dl" style="background:var(--a)" onclick="editMateriTeks('${m.id}')">✏️ Edit</button><button class="btn-del-materi" onclick="hapusMateri('${m.id}','')">🗑</button>`:''}
+              </div>
+            </div>`;
+          }
+        });
+      }
+      html+='</div>';
+
+      if(isDsn){
+        html+=`
+        <div class="card" style="margin-top:16px">
+          <div class="card-hd"><div class="card-title">➕ Tambah Materi</div></div>
+          <div style="padding:16px">
+            <div class="tipe-tabs">
+              <div class="tipe-tab on" id="tipeFile" onclick="switchTipe('file')">📎 Upload File</div>
+              <div class="tipe-tab" id="tipeTeks" onclick="switchTipe('teks')">📝 Konten Teks</div>
+            </div>
+
+            <div id="formFile">
+              <input class="inp" id="judulFile" placeholder="Judul materi">
+              <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-ico">📁</div>
+                <div class="upload-txt">Klik untuk pilih file</div>
+                <div class="upload-sub">PDF, PPT, Gambar, Video — semua format didukung</div>
+                <input type="file" id="fileInput" style="display:none" accept="*/*" onchange="previewFile(this)">
+              </div>
+              <div id="filePreview" style="display:none" class="file-preview"></div>
+              <div id="uploadProgress" style="display:none">
+                <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                <div class="progress-txt" id="progressTxt">Mengupload...</div>
+              </div>
+              <button class="btn-full" style="margin-top:12px" onclick="uploadMateriFile()">Upload & Simpan</button>
+            </div>
+
+            <div id="formTeks" style="display:none">
+              <input class="inp" id="judulTeks" placeholder="Judul materi">
+              <div id="quillEditor" style="height:300px;border-radius:8px;overflow:hidden"></div>
+              <button class="btn-full" style="margin-top:12px" onclick="simpanMateriTeks()">Simpan Materi</button>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      document.getElementById('tabContent').innerHTML=html;
+
+      if(isDsn){
+        // Init Quill
+        _quill=new Quill('#quillEditor',{
+          theme:'snow',
+          placeholder:'Tulis konten materi di sini...',
+          modules:{toolbar:[
+            [{header:[1,2,3,false]}],
+            ['bold','italic','underline','strike'],
+            [{color:[]},{background:[]}],
+            [{list:'ordered'},{list:'bullet'}],
+            ['blockquote','code-block'],
+            ['link','image'],
+            ['clean']
+          ]}
+        });
+      }
+    }
+
+    function getFileIcon(nama){
+      const ext=(nama.split('.').pop()||'').toLowerCase();
+      if(['pdf'].includes(ext)) return '📄';
+      if(['ppt','pptx'].includes(ext)) return '📊';
+      if(['jpg','jpeg','png','gif','webp'].includes(ext)) return '🖼';
+      if(['mp4','mov','avi','mkv'].includes(ext)) return '🎬';
+      if(['doc','docx'].includes(ext)) return '📝';
+      return '📎';
+    }
+
+    window.switchTipe=(tipe)=>{
+      document.getElementById('tipeFile').classList.toggle('on',tipe==='file');
+      document.getElementById('tipeTeks').classList.toggle('on',tipe==='teks');
+      document.getElementById('formFile').style.display=tipe==='file'?'block':'none';
+      document.getElementById('formTeks').style.display=tipe==='teks'?'block':'none';
+    };
+
+    window.previewFile=(input)=>{
+      const file=input.files[0];if(!file)return;
+      const preview=document.getElementById('filePreview');
+      const size=file.size>1024*1024?(file.size/1024/1024).toFixed(1)+' MB':(file.size/1024).toFixed(0)+' KB';
+      preview.style.display='flex';
+      preview.innerHTML=`<span>${getFileIcon(file.name)}</span><div><div style="font-weight:600">${file.name}</div><div style="font-size:12px;color:var(--muted)">${size}</div></div>`;
+      document.getElementById('uploadArea').style.display='none';
+    };
+
+    window.uploadMateriFile=async()=>{
+      const judul=document.getElementById('judulFile').value.trim();
+      const fileInput=document.getElementById('fileInput');
+      const file=fileInput.files[0];
+      if(!judul)return toast('Isi judul materi dulu');
+      if(!file)return toast('Pilih file dulu');
+
+      const path=`materi/${_prt.id}/${Date.now()}_${file.name}`;
+      const storageRef=ref(storage,path);
+      const uploadTask=uploadBytesResumable(storageRef,file);
+
+      document.getElementById('uploadProgress').style.display='block';
+      document.querySelector('.btn-full').disabled=true;
+
+      uploadTask.on('state_changed',
+        (snapshot)=>{
+          const pct=Math.round(snapshot.bytesTransferred/snapshot.totalBytes*100);
+          document.getElementById('progressFill').style.width=pct+'%';
+          document.getElementById('progressTxt').textContent=`Mengupload... ${pct}%`;
+        },
+        (err)=>{ toast('Upload gagal: '+err.message); document.getElementById('uploadProgress').style.display='none'; },
+        async()=>{
+          const url=await getDownloadURL(uploadTask.snapshot.ref);
+          const size=file.size>1024*1024?(file.size/1024/1024).toFixed(1)+' MB':(file.size/1024).toFixed(0)+' KB';
+          await addDoc(collection(db,'pertemuan',_prt.id,'materi'),{
+            judul,tipe:'file',fileUrl:url,filePath:path,namaFile:file.name,ukuran:size,createdAt:serverTimestamp()
+          });
+          toast('✅ Materi berhasil diupload!');
+          await renderMateriTab();
+        }
+      );
+    };
+
+    window.simpanMateriTeks=async()=>{
+      const judul=document.getElementById('judulTeks').value.trim();
+      if(!judul)return toast('Isi judul materi dulu');
+      if(!_quill)return;
+      const konten=_quill.root.innerHTML;
+      if(_quill.getText().trim().length===0)return toast('Isi konten materi dulu');
+
+      await addDoc(collection(db,'pertemuan',_prt.id,'materi'),{
+        judul,tipe:'teks',konten,createdAt:serverTimestamp()
+      });
+      toast('✅ Materi teks tersimpan!');
+      await renderMateriTab();
+    };
+
+    window.bacaMateriTeks=async(materiId)=>{
+      const snap=await getDoc(doc(db,'pertemuan',_prt.id,'materi',materiId));
+      if(!snap.exists())return;
+      const m=snap.data();
+      openModal(m.judul,`<div class="materi-konten ql-editor" style="padding:0">${m.konten}</div>`);
+    };
+
+    window.editMateriTeks=async(materiId)=>{
+      const snap=await getDoc(doc(db,'pertemuan',_prt.id,'materi',materiId));
+      if(!snap.exists())return;
+      const m=snap.data();
+      openModal('Edit Materi: '+m.judul,`
+        <input class="inp" id="editJudul" value="${m.judul}">
+        <div id="editQuill" style="height:300px"></div>
+        <button class="btn-full" style="margin-top:12px" onclick="saveEditTeks('${materiId}')">Simpan Perubahan</button>
+      `);
+      setTimeout(()=>{
+        const eq=new Quill('#editQuill',{theme:'snow',modules:{toolbar:[
+          [{header:[1,2,3,false]}],['bold','italic','underline'],
+          [{list:'ordered'},{list:'bullet'}],['link','image'],['clean']
+        ]}});
+        eq.root.innerHTML=m.konten;
+        window._editQuill=eq;
+      },100);
+    };
+
+    window.saveEditTeks=async(materiId)=>{
+      const judul=document.getElementById('editJudul').value.trim();
+      if(!judul||!window._editQuill)return;
+      const konten=window._editQuill.root.innerHTML;
+      await updateDoc(doc(db,'pertemuan',_prt.id,'materi',materiId),{judul,konten});
+      closeModal();toast('✅ Materi diperbarui!');
+      await renderMateriTab();
+    };
+
+    window.hapusMateri=async(materiId,filePath)=>{
+      if(!confirm('Hapus materi ini?'))return;
+      if(filePath){
+        try{await deleteObject(ref(storage,filePath));}catch(e){}
+      }
+      await deleteDoc(doc(db,'pertemuan',_prt.id,'materi',materiId));
+      toast('🗑 Materi dihapus');
+      await renderMateriTab();
+    };
+
+    // ── HALAMAN LAIN ─────────────────────────────────────────
+    async function renderMahasiswa(){setContent('<div class="card"><div class="card-hd"><div class="card-title">👥 Mahasiswa</div></div><div class="empty"><p>Fitur segera hadir.</p></div></div>');}
+    async function renderNilaiDsn(){setContent('<div class="card"><div class="card-hd"><div class="card-title">✏️ Input Nilai</div></div><div class="empty"><p>Fitur segera hadir.</p></div></div>');}
+    async function renderNotifikasi(){setContent('<div class="card"><div class="card-hd"><div class="card-title">🔔 Notifikasi</div></div><div class="empty"><p>Tidak ada notifikasi.</p></div></div>');}
+    async function renderProfil(){setContent(`<div class="card"><div style="padding:20px"><h3>${user.nama}</h3><p style="color:var(--muted)">${user.email}</p><p style="margin-top:8px">Role: ${user.role}</p></div></div>`);}
+    async function renderAbsensiMhs(){setContent('<div class="card"><div class="card-hd"><div class="card-title">✋ Absensi Saya</div></div><div class="empty"><p>Fitur segera hadir.</p></div></div>');}
+    async function renderNilaiMhs(){setContent('<div class="card"><div class="card-hd"><div class="card-title">📊 Nilai Saya</div></div><div class="empty"><p>Fitur segera hadir.</p></div></div>');}
+
+    // ── UTILS ─────────────────────────────────────────────────
+    function v(id){return document.getElementById(id)?.value||'';}
+    window.toast=(msg)=>{
+      const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+      clearTimeout(window._tToast);window._tToast=setTimeout(()=>t.classList.remove('show'),2800);
+    };
+    window.closeModal=()=>{document.getElementById('modalBg').classList.remove('open');document.body.style.overflow='';};
+    window.openModal=(title,content)=>{
+      document.getElementById('modalBox').innerHTML=`<div class="modal-title">${title}<button class="modal-x" onclick="closeModal()">✕</button></div>${content}`;
+      document.getElementById('modalBg').classList.add('open');document.body.style.overflow='hidden';
+    };
   </script>
 
   <style>
@@ -249,69 +457,165 @@
       --g:#059669;--gb:#ecfdf5;--r:#dc2626;--rb:#fef2f2;--a:#d97706;--ab:#fffbeb;
       --b:#2563eb;--bb:#eff6ff;--pu:#7c3aed;--pub:#f5f3ff;
       --side:240px;--top:58px;--bot:60px;
+      --radius:10px;
     }
     body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.5;height:100vh;overflow:hidden}
-    #screen-login,#screen-setup{position:fixed;inset:0;background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#312e81 100%);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto}
+
+    /* ── LOGIN ── */
+    #screen-login{position:fixed;inset:0;background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#312e81 100%);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;overflow-y:auto}
     .login-wrap{width:100%;max-width:420px}
     .login-brand{text-align:center;margin-bottom:24px}
-    .login-brand h1{color:#fff;font-size:22px;font-weight:800}
-    .login-card{background:#fff;border-radius:16px;padding:24px;box-shadow:0 24px 64px rgba(0,0,0,0.3)}
+    .login-brand h1{color:#fff;font-size:24px;font-weight:800;letter-spacing:-0.5px}
+    .login-card{background:#fff;border-radius:20px;padding:28px;box-shadow:0 24px 64px rgba(0,0,0,0.4)}
     .role-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:20px}
     .role-tab{padding:10px;border:1.5px solid var(--border);border-radius:9px;cursor:pointer;text-align:center;font-size:13px;color:var(--muted);background:#fff;transition:all .15s}
-    .role-tab.on{border-color:var(--p);background:var(--pl);color:var(--p)}
-    .inp{width:100%;padding:12px;border:1.5px solid var(--border);border-radius:9px;font-size:16px;margin-bottom:12px}
-    .btn-full{width:100%;padding:14px;background:var(--p);color:#fff;border:none;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer}
-    .dosen-info{background:var(--pl);border:1.5px solid var(--p);border-radius:9px;padding:12px;color:var(--p);margin-bottom:12px;display:none}
+    .role-tab.on{border-color:var(--p);background:var(--pl);color:var(--p);font-weight:600}
+    .inp{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:15px;margin-bottom:12px;outline:none;transition:border-color .15s}
+    .inp:focus{border-color:var(--p)}
+    .btn-full{width:100%;padding:14px;background:var(--p);color:#fff;border:none;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer;transition:background .15s}
+    .btn-full:hover{background:var(--pd)}
+    .btn-full:disabled{opacity:.5;cursor:not-allowed}
+    .dosen-info{background:var(--pl);border:1.5px solid var(--p);border-radius:9px;padding:12px;color:var(--p);margin-bottom:12px;display:none;font-size:13px}
+
+    /* ── APP LAYOUT ── */
     #app{display:none;height:100vh;flex-direction:row}
-    .sidebar{width:var(--side);background:var(--ink);display:flex;flex-direction:column;height:100vh;flex-shrink:0}
-    .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-    .topbar{height:var(--top);background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:10px}
+    .sidebar{width:var(--side);background:var(--ink);display:flex;flex-direction:column;height:100vh;flex-shrink:0;transition:transform .25s}
+    .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+    .topbar{height:var(--top);background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:10px;flex-shrink:0}
+    .page-title{font-weight:700;font-size:16px;flex:1}
     .content{flex:1;overflow-y:auto;padding:16px}
-    .bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);z-index:50}
+    .bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);z-index:50;padding-bottom:env(safe-area-inset-bottom)}
     .bn-items{display:flex;justify-content:space-around}
-    .bn-item{display:flex;flex-direction:column;align-items:center;padding:8px;cursor:pointer;font-size:10px;gap:2px}
+    .bn-item{display:flex;flex-direction:column;align-items:center;padding:8px 4px;cursor:pointer;font-size:10px;gap:2px;color:var(--muted);min-width:0}
+    .bn-item.on{color:var(--p)}
+    .bn-ico{font-size:20px}
+
+    /* ── SIDEBAR ── */
+    .sb-brand{padding:16px 14px;color:#fff;font-weight:800;font-size:15px;border-bottom:1px solid rgba(255,255,255,.08)}
+    .sb-user{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08)}
+    .sb-av{width:36px;height:36px;border-radius:50%;background:var(--p);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
+    .sb-uname{color:#fff;font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #sbRole{color:rgba(255,255,255,.45);font-size:11px}
+    .sb-nav{flex:1;overflow-y:auto;padding:8px 0}
+    .nav-sec{color:rgba(255,255,255,.3);font-size:10px;font-weight:700;text-transform:uppercase;padding:12px 14px 4px;letter-spacing:.5px}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;color:rgba(255,255,255,.65);cursor:pointer;border-radius:8px;margin:1px 8px;font-size:13px;transition:all .15s}
+    .nav-item:hover,.nav-item.on{background:rgba(255,255,255,.1);color:#fff}
+    .nav-ico{font-size:16px;width:20px;text-align:center;flex-shrink:0}
+
+    /* ── CARDS & STATS ── */
     .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
-    .stat-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px}
-    .prt-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-    .prt-card{border:1.5px solid var(--border);border-radius:9px;padding:10px;cursor:pointer}
-    .card{background:#fff;border:1px solid var(--border);border-radius:10px;margin-bottom:12px}
-    .card-hd{padding:12px 14px;border-bottom:1px solid var(--border);font-weight:700}
-    .empty{text-align:center;padding:40px;color:var(--muted)}
-    .dtabs{display:flex;gap:4px;margin-bottom:12px}
-    .dtab{flex:1;padding:8px;text-align:center;border-radius:6px;cursor:pointer;font-size:11px;background:var(--bg)}
-    .dtab.on{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.07);font-weight:600}
-    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:flex-end;justify-content:center;z-index:200}
+    .stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+    .stat-ico{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:8px}
+    .stat-lbl{font-size:11px;color:var(--muted);margin-bottom:2px}
+    .stat-val{font-size:22px;font-weight:700;line-height:1.2}
+    .stat-sub{font-size:11px;color:var(--muted)}
+    .card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;overflow:hidden}
+    .card-hd{padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px}
+    .card-title{font-size:14px;font-weight:700}
+    .empty{text-align:center;padding:40px 20px;color:var(--muted)}
+    .emo{font-size:40px;margin-bottom:8px}
+    .loading{text-align:center;padding:40px;color:var(--muted)}
+
+    /* ── PERTEMUAN ── */
+    .prt-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+    .prt-card{background:#fff;border:1.5px solid var(--border);border-radius:var(--radius);padding:14px;cursor:pointer;transition:all .15s}
+    .prt-card:hover{border-color:var(--p);box-shadow:0 2px 12px rgba(79,70,229,.1);transform:translateY(-1px)}
+    .prt-badge{display:inline-block;background:var(--pl);color:var(--p);font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;margin-bottom:6px}
+    .prt-topik{font-size:13px;font-weight:600;color:var(--ink);line-height:1.4}
+    .prt-detail-header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+    .prt-detail-header h2{font-size:16px;font-weight:700;flex:1}
+    .btn-back{padding:7px 14px;border:1.5px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;font-size:13px;color:var(--ink2);white-space:nowrap}
+    .btn-back:hover{border-color:var(--p);color:var(--p)}
+
+    /* ── TABS ── */
+    .dtabs{display:flex;gap:4px;margin-bottom:14px;background:#fff;padding:4px;border-radius:10px;border:1px solid var(--border)}
+    .dtab{flex:1;padding:8px;text-align:center;border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;color:var(--muted);transition:all .15s}
+    .dtab.on{background:var(--p);color:#fff;font-weight:700}
+
+    /* ── MATERI ── */
+    .materi-item{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border);transition:background .1s}
+    .materi-item:last-child{border-bottom:none}
+    .materi-item:hover{background:#fafafa}
+    .materi-icon{font-size:28px;flex-shrink:0;width:40px;text-align:center}
+    .materi-info{flex:1;min-width:0}
+    .materi-judul{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .materi-meta{font-size:12px;color:var(--muted);margin-top:2px}
+    .materi-actions{display:flex;gap:6px;flex-shrink:0}
+    .btn-dl{padding:6px 12px;background:var(--p);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap}
+    .btn-dl:hover{background:var(--pd)}
+    .btn-del-materi{padding:6px 10px;background:var(--rb);color:var(--r);border:none;border-radius:7px;font-size:14px;cursor:pointer}
+    .materi-konten{font-size:14px;line-height:1.7;color:var(--ink)}
+    .materi-konten h1,.materi-konten h2,.materi-konten h3{margin:16px 0 8px;font-weight:700}
+    .materi-konten p{margin-bottom:10px}
+    .materi-konten ul,.materi-konten ol{padding-left:20px;margin-bottom:10px}
+
+    /* ── UPLOAD ── */
+    .tipe-tabs{display:flex;gap:8px;margin-bottom:16px}
+    .tipe-tab{flex:1;padding:10px;border:1.5px solid var(--border);border-radius:9px;cursor:pointer;text-align:center;font-size:13px;color:var(--muted);transition:all .15s}
+    .tipe-tab.on{border-color:var(--p);background:var(--pl);color:var(--p);font-weight:600}
+    .upload-area{border:2px dashed var(--border);border-radius:10px;padding:30px;text-align:center;cursor:pointer;transition:all .15s;margin-bottom:12px}
+    .upload-area:hover{border-color:var(--p);background:var(--pl)}
+    .upload-ico{font-size:36px;margin-bottom:8px}
+    .upload-txt{font-weight:600;font-size:14px;margin-bottom:4px}
+    .upload-sub{font-size:12px;color:var(--muted)}
+    .file-preview{display:flex;align-items:center;gap:10px;padding:12px;background:var(--gb);border-radius:9px;margin-bottom:12px;font-size:14px}
+    .file-preview span{font-size:28px}
+    .progress-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:6px}
+    .progress-fill{height:100%;background:var(--p);border-radius:3px;transition:width .3s}
+    .progress-txt{font-size:12px;color:var(--muted);text-align:center}
+
+    /* ── MODAL ── */
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-end;justify-content:center;z-index:200}
     .modal-bg.open{display:flex}
-    .modal{background:#fff;border-radius:20px 20px 0 0;padding:20px;width:100%;max-height:92vh;overflow-y:auto}
-    .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 20px;border-radius:20px;z-index:999;opacity:0;transition:all .2s;pointer-events:none}
-    .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-    @media(max-width:640px){
+    .modal{background:#fff;border-radius:20px 20px 0 0;padding:20px;width:100%;max-height:90vh;overflow-y:auto}
+    .modal-title{font-weight:700;font-size:16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center}
+    .modal-x{border:none;background:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1}
+
+    /* ── TOAST ── */
+    .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 20px;border-radius:20px;z-index:999;opacity:0;transition:all .2s;pointer-events:none;white-space:nowrap}
+    .toast.show{opacity:1}
+
+    /* ── RESPONSIVE ── */
+    @media(max-width:768px){
       .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:45;transform:translateX(-100%);width:260px}
       .sidebar.open{transform:translateX(0)}
       .bottom-nav{display:block}
+      .content{padding-bottom:calc(var(--bot) + 8px)}
       .stats-grid{grid-template-columns:1fr 1fr}
-      .prt-grid{grid-template-columns:repeat(3,1fr)}
+      .prt-grid{grid-template-columns:repeat(2,1fr)}
+      .materi-actions{flex-direction:column}
     }
+    @media(max-width:400px){
+      .prt-grid{grid-template-columns:1fr 1fr}
+    }
+
+    /* ── Quill override ── */
+    .ql-toolbar{border-radius:9px 9px 0 0;border-color:var(--border)!important}
+    .ql-container{border-radius:0 0 9px 9px;border-color:var(--border)!important;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
   </style>
 </head>
 <body>
-  <div id="screen-setup" style="display:none"></div>
   <div id="screen-login">
     <div class="login-wrap">
-      <div class="login-brand"><h1>🎓 EduCampus</h1><p style="color:rgba(255,255,255,.5)">Firebase Edition</p></div>
+      <div class="login-brand">
+        <h1>🎓 EduCampus</h1>
+        <p style="color:rgba(255,255,255,.5);margin-top:4px">Firebase Edition</p>
+      </div>
       <div class="login-card">
         <div class="role-tabs">
           <div class="role-tab on" id="tabM" onclick="setRole('mahasiswa')">🎓 Mahasiswa</div>
           <div class="role-tab" id="tabD" onclick="setRole('dosen')">👨‍🏫 Dosen</div>
         </div>
-        <div id="authErr" style="background:var(--rb);color:var(--r);padding:9px;border-radius:8px;margin-bottom:12px;display:none"></div>
-        <div id="authOk" style="background:var(--gb);color:var(--g);padding:9px;border-radius:8px;margin-bottom:12px;display:none"></div>
-        <div class="dosen-info" id="dosenInfo"><strong>👨‍🏫 Akun Dosen</strong> Login dengan akun yang sudah dibuat admin.</div>
+        <div id="authErr" style="background:var(--rb);color:var(--r);padding:10px 12px;border-radius:8px;margin-bottom:12px;display:none;font-size:13px"></div>
+        <div id="authOk" style="background:var(--gb);color:var(--g);padding:10px 12px;border-radius:8px;margin-bottom:12px;display:none;font-size:13px"></div>
+        <div class="dosen-info" id="dosenInfo"><strong>👨‍🏫 Akun Dosen</strong> — Login dengan akun yang sudah dibuat admin.</div>
         <div id="fLogin">
-          <input class="inp" id="lEmail" placeholder="Email" type="email">
-          <input class="inp" id="lPass" placeholder="Password" type="password">
+          <input class="inp" id="lEmail" placeholder="Email" type="email" autocomplete="email">
+          <input class="inp" id="lPass" placeholder="Password" type="password" autocomplete="current-password">
           <button class="btn-full" onclick="doLogin()">Masuk</button>
-          <div style="text-align:center;margin-top:12px;font-size:13px" id="switchLink" onclick="toggleReg()">Belum punya akun? <span style="color:var(--p);font-weight:600">Daftar</span></div>
+          <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--muted)" id="switchLink" onclick="toggleReg()">
+            Belum punya akun? <span style="color:var(--p);font-weight:600;cursor:pointer">Daftar</span>
+          </div>
         </div>
         <div id="fReg" style="display:none">
           <input class="inp" id="rNama" placeholder="Nama Lengkap">
@@ -319,9 +623,11 @@
           <input class="inp" id="rEmail" placeholder="Email" type="email">
           <input class="inp" id="rPass" placeholder="Password (min. 6)" type="password">
           <input class="inp" id="rSem" placeholder="Semester" type="number">
-          <input class="inp" id="rProdi" placeholder="Prodi">
-          <button class="btn-full" onclick="doRegister()">Daftar</button>
-          <div style="text-align:center;margin-top:12px" onclick="toggleReg()">Sudah punya akun? <span style="color:var(--p)">Masuk</span></div>
+          <input class="inp" id="rProdi" placeholder="Program Studi">
+          <button class="btn-full" onclick="doRegister()">Daftar Akun</button>
+          <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--muted);cursor:pointer" onclick="toggleReg()">
+            Sudah punya akun? <span style="color:var(--p);font-weight:600">Masuk</span>
+          </div>
         </div>
       </div>
     </div>
@@ -329,18 +635,40 @@
 
   <div id="app">
     <div class="sidebar" id="sidebar">
-      <div style="padding:14px;color:#fff;font-weight:700">🎓 EduCampus</div>
-      <div class="sb-user"><div class="sb-av" id="sbAv">?</div><div><div class="sb-uname" id="sbName">...</div><div id="sbRole"></div></div></div>
+      <div class="sb-brand">🎓 EduCampus</div>
+      <div class="sb-user">
+        <div class="sb-av" id="sbAv">?</div>
+        <div style="min-width:0">
+          <div class="sb-uname" id="sbName">...</div>
+          <div id="sbRole"></div>
+        </div>
+      </div>
       <div class="sb-nav" id="navMenu"></div>
     </div>
+
     <div class="main">
-      <header class="topbar"><div class="page-title" id="pageTitle">Dashboard</div><div id="topActions"></div></header>
+      <header class="topbar">
+        <button onclick="openSidebar()" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;display:none" id="menuBtn">☰</button>
+        <div class="page-title" id="pageTitle">Dashboard</div>
+        <div id="topActions"></div>
+      </header>
       <div class="content" id="content"></div>
     </div>
+
     <nav class="bottom-nav" id="bottomNav"></nav>
   </div>
-  <div class="modal-bg" id="modalBg"><div class="modal" id="modalBox"></div></div>
+
+  <div class="modal-bg" id="modalBg">
+    <div class="modal" id="modalBox"></div>
+  </div>
   <div class="toast" id="toast"></div>
-  <div id="sbOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40" onclick="closeSidebar()"></div>
+  <div id="sbOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:44" onclick="closeSidebar()"></div>
+
+  <script>
+    // Show menu button on mobile
+    if(window.innerWidth<=768){
+      document.getElementById('menuBtn').style.display='block';
+    }
+  </script>
 </body>
 </html>
