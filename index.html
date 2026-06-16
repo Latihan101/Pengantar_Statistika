@@ -117,11 +117,12 @@
       const mhs = [
         {p:'dashboard',i:'grid',l:'Dashboard'},
         {p:'pertemuan',i:'calendar',l:'Pertemuan'},
+        {p:'tugas_mhs',i:'clipboard',l:'Tugas'},
         {p:'absensi_mhs',i:'check-square',l:'Absensi'},
         {p:'nilai_mhs',i:'bar-chart-2',l:'Nilai'},
         {p:'notifikasi',i:'bell',l:'Notifikasi'},
         {p:'profil',i:'user',l:'Profil'},
-      ];
+     ];
       const nav = user.role === 'dosen' ? dsn : mhs;
       document.getElementById('navMenu').innerHTML =
         nav.map(n=>`
@@ -135,7 +136,7 @@
         </div>`;
       const bnKeys = user.role==='dosen'
   ? ['dashboard','pertemuan','nilai_dsn','notifikasi']
-  : ['dashboard','pertemuan','absensi_mhs','notifikasi'];
+  : ['dashboard','pertemuan','tugas_mhs','absensi_mhs'];
       const bnItems = nav.filter(n=>bnKeys.includes(n.p));
       document.getElementById('bottomNav').innerHTML =
   `<div class="bn-items">
@@ -177,15 +178,16 @@
         'award': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>`,
         'help-circle': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
         'drive': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2z"/><path d="M2 19h20"/><path d="M12 2L6 19"/></svg>`,
+        'clipboard': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>`,
       };
       return icons[name] || '';
     }
     window.svgIcon = svgIcon;
 
     const TITLES = {
-      dashboard:'Dashboard', pertemuan:'Pertemuan', mahasiswa:'Data Mahasiswa',
-      nilai_dsn:'Input Nilai', notifikasi:'Notifikasi', profil:'Profil Saya',
-      absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya',
+  dashboard:'Dashboard', pertemuan:'Pertemuan', mahasiswa:'Data Mahasiswa',
+  nilai_dsn:'Input Nilai', notifikasi:'Notifikasi', profil:'Profil Saya',
+  absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya', tugas_mhs:'Tugas Saya',
     };
 
     window.go = function(page, params={}) {
@@ -196,11 +198,11 @@
       document.getElementById('pageTitle').textContent = TITLES[page]||page;
       document.getElementById('topActions').innerHTML = '';
       setContent('<div class="loading"><div class="spin"></div><span>Memuat data...</span></div>');
-      const map = {
-        dashboard:renderDashboard, pertemuan:renderPertemuan, mahasiswa:renderMahasiswa,
-        nilai_dsn:renderNilaiDsn, notifikasi:renderNotifikasi, profil:renderProfil,
-        absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs
-      };
+     const map = {
+  dashboard:renderDashboard, pertemuan:renderPertemuan, mahasiswa:renderMahasiswa,
+  nilai_dsn:renderNilaiDsn, notifikasi:renderNotifikasi, profil:renderProfil,
+  absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs, tugas_mhs:renderTugasMhs
+     };
       if (map[page]) {
         Promise.resolve(map[page](params)).catch(e=>{
           console.error('Gagal render halaman '+page+':', e);
@@ -1302,6 +1304,105 @@ window.closeSidebar = ()=>{
       toast('✅ Nilai disimpan!');
     };
 
+    async function renderTugasMhs(){
+  setContent('<div class="loading"><div class="spin"></div><span>Memuat tugas...</span></div>');
+  try {
+    const prtSnap = await getDocs(collection(db,'pertemuan'));
+    const prts = [];
+    prtSnap.forEach(d => prts.push({id:d.id,...d.data()}));
+    prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
+
+    let semuaTugas = [];
+    for(const p of prts){
+      const tugasSnap = await getDocs(collection(db,'pertemuan',p.id,'tugas'));
+      for(const td of tugasSnap.docs){
+        const t = {id:td.id, prtId:p.id, prtKe:p.pertemuanKe, prtTopik:p.topik||'', ...td.data()};
+        let sudahKumpul = false;
+        try {
+          const kSnap = await getDoc(doc(db,'pertemuan',p.id,'tugas',td.id,'pengumpulan',user.id));
+          sudahKumpul = kSnap.exists();
+        } catch(e){}
+        semuaTugas.push({...t, sudahKumpul});
+      }
+    }
+
+    // Pisahkan: belum kumpul vs sudah kumpul, urutkan deadline terdekat dulu
+    const belumKumpul = semuaTugas.filter(t=>!t.sudahKumpul);
+    const sudahKumpul = semuaTugas.filter(t=>t.sudahKumpul);
+    const sortByDeadline = (a,b)=>{
+      if(!a.batasWaktu && !b.batasWaktu) return 0;
+      if(!a.batasWaktu) return 1;
+      if(!b.batasWaktu) return -1;
+      return new Date(a.batasWaktu)-new Date(b.batasWaktu);
+    };
+    belumKumpul.sort(sortByDeadline);
+    sudahKumpul.sort(sortByDeadline);
+    const ordered = [...belumKumpul, ...sudahKumpul];
+
+    if(ordered.length === 0){
+      setContent(`<div class="empty"><div class="empty-ico">📝</div><h3>Belum ada tugas</h3><p>Dosen belum memberikan tugas apapun.</p></div>`);
+      return;
+    }
+// ──Tugas mahasiswa
+    const renderKartuTugas = (t) => {
+      const batas = t.batasWaktu ? new Date(t.batasWaktu) : null;
+      const terlambat = batas && new Date() > batas;
+      const batasStr = batas ? batas.toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Tidak ada batas';
+      const selisihMs = batas ? batas - new Date() : null;
+      const selisihHari = selisihMs ? Math.ceil(selisihMs/1000/60/60/24) : null;
+      let deadlineBadge = '';
+      if(t.sudahKumpul){
+        deadlineBadge = `<span class="badge badge-green">✅ Terkumpul</span>`;
+      } else if(terlambat){
+        deadlineBadge = `<span class="badge badge-red">⏰ Terlambat</span>`;
+      } else if(selisihHari !== null && selisihHari <= 1){
+        deadlineBadge = `<span class="badge badge-red">🔥 Deadline Hari Ini</span>`;
+      } else if(selisihHari !== null && selisihHari <= 3){
+        deadlineBadge = `<span class="badge badge-yellow">⚠️ ${selisihHari} hari lagi</span>`;
+      } else {
+        deadlineBadge = `<span class="badge badge-yellow">⏳ Belum Kumpul</span>`;
+      }
+      return `
+        <div class="tugas-card" style="${t.sudahKumpul?'opacity:.75':''}">
+          <div style="font-size:11px;font-weight:700;color:var(--p);margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px">
+            Pertemuan ${t.prtKe} · ${t.prtTopik}
+          </div>
+          <div class="tugas-card-header">
+            <div>
+              <div class="tugas-judul">${t.judul}</div>
+              <div class="tugas-meta">${svgIcon('clock')} ${batasStr}</div>
+            </div>
+            ${deadlineBadge}
+          </div>
+          ${t.deskripsi?`<div class="tugas-deskripsi">${t.deskripsi}</div>`:''}
+          <div style="margin-top:10px">
+            <button class="btn-action btn-secondary" onclick="bukaPrt('${t.prtId}');setTimeout(()=>loadTab('tugas'),600)">
+              ${t.sudahKumpul ? '👁️ Lihat Tugas' : '📤 Kerjakan Tugas'}
+            </button>
+          </div>
+        </div>`;
+    };
+
+    let html = '';
+
+    // Bagian belum dikumpul
+    if(belumKumpul.length > 0){
+      html += `<div class="section-title" style="margin-bottom:10px">⏳ Belum Dikumpulkan (${belumKumpul.length})</div>`;
+      html += `<div class="tugas-list">${belumKumpul.map(renderKartuTugas).join('')}</div>`;
+    }
+
+    // Bagian sudah dikumpul
+    if(sudahKumpul.length > 0){
+      html += `<div class="section-title" style="margin:16px 0 10px">✅ Sudah Dikumpulkan (${sudahKumpul.length})</div>`;
+      html += `<div class="tugas-list">${sudahKumpul.map(renderKartuTugas).join('')}</div>`;
+    }
+
+    setContent(html);
+  } catch(e){
+    setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat tugas</h3><p>${e.message}</p></div>`);
+  }
+}
+    
     async function renderAbsensiMhs(){
       const [prtSnap,absSnap]=await Promise.all([getDocs(collection(db,'pertemuan')),getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id)))]);
       const prts=[];prtSnap.forEach(d=>prts.push({id:d.id,...d.data()}));prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
