@@ -587,65 +587,6 @@
 
     // ── HALAMAN LAIN ─────────────────────────────────────────
     async function renderMahasiswa(){ setContent('<div class="empty"><div class="empty-ico">👥</div><h3>Data Mahasiswa</h3><p>Fitur segera hadir.</p></div>'); }
-    async function renderNilaiDsn(){ setContent('<div class="empty"><div class="empty-ico">✏️</div><h3>Input Nilai</h3><p>Fitur segera hadir.</p></div>'); }
-    // ================= NOTIFIKASI =================
-async function renderNotifikasi(){
-  const isDsn = user.role === 'dosen';
-
-  let html = `<div class="section-title">Notifikasi</div>`;
-
-  if(isDsn){
-    html += `
-      <div class="card">
-        <input id="notifJudul" class="inp" placeholder="Judul notifikasi">
-        <textarea id="notifIsi" class="inp" placeholder="Isi notifikasi"></textarea>
-        <button class="btn-submit" onclick="kirimNotif()">Kirim</button>
-      </div>
-    `;
-  }
-
-  html += `<div id="listNotif"></div>`;
-  setContent(html);
-
-  loadNotif();
-}
-    window.kirimNotif = async () => {
-  const judul = document.getElementById('notifJudul').value.trim();
-  const isi = document.getElementById('notifIsi').value.trim();
-
-  if(!judul || !isi){
-    alert('Isi semua field!');
-    return;
-  }
-
-  await addDoc(collection(db, 'notifikasi'), {
-    title: judul,
-    pesan: isi,
-    createdAt: serverTimestamp()
-  });
-
-  alert('Berhasil kirim notifikasi!');
-  onSnapshot(collection(db,'notifikasi'), ()=>{
-  loadNotif();
-});
-};
-    async function loadNotif(){
-  const snap = await getDocs(query(
-    collection(db,'notifikasi'),
-    orderBy('createdAt','desc')
-  ));
-
-  const list = [];
-  snap.forEach(d => list.push(d.data()));
-
-  document.getElementById('listNotif').innerHTML =
-    list.map(n => `
-      <div class="card">
-        <b>${n.title}</b>
-        <div style="font-size:13px;color:gray">${n.pesan}</div>
-      </div>
-    `).join('');
-}
     async function renderNotifikasi(){ setContent('<div class="empty"><div class="empty-ico">🔔</div><h3>Notifikasi</h3><p>Tidak ada notifikasi.</p></div>'); }
     async function renderProfil(){
       setContent(`
