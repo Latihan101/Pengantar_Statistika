@@ -110,6 +110,7 @@
         {p:'dashboard',i:'grid',l:'Dashboard'},
         {p:'pertemuan',i:'calendar',l:'Pertemuan'},
         {p:'mahasiswa',i:'users',l:'Mahasiswa'},
+        {p:'rekap_dsn',i:'bar-chart-2',l:'Rekap'},
         {p:'nilai_dsn',i:'edit',l:'Input Nilai'},
         {p:'notifikasi',i:'bell',l:'Notifikasi'},
         {p:'profil',i:'user',l:'Profil'},
@@ -135,7 +136,7 @@
           <span class="nav-lbl">Keluar</span>
         </div>`;
       const bnKeys = user.role==='dosen'
-  ? ['dashboard','pertemuan','nilai_dsn','notifikasi']
+  ? ['dashboard','pertemuan','rekap_dsn','nilai_dsn']
   : ['dashboard','pertemuan','tugas_mhs','absensi_mhs'];
       const bnItems = nav.filter(n=>bnKeys.includes(n.p));
       document.getElementById('bottomNav').innerHTML =
@@ -187,7 +188,7 @@
     const TITLES = {
   dashboard:'Dashboard', pertemuan:'Pertemuan', mahasiswa:'Data Mahasiswa',
   nilai_dsn:'Input Nilai', notifikasi:'Notifikasi', profil:'Profil Saya',
-  absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya', tugas_mhs:'Tugas Saya',
+  absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya', tugas_mhs:'Tugas Saya', rekap_dsn:'Rekap Kelas',
     };
 
     window.go = function(page, params={}) {
@@ -201,7 +202,7 @@
      const map = {
   dashboard:renderDashboard, pertemuan:renderPertemuan, mahasiswa:renderMahasiswa,
   nilai_dsn:renderNilaiDsn, notifikasi:renderNotifikasi, profil:renderProfil,
-  absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs, tugas_mhs:renderTugasMhs
+  absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs, tugas_mhs:renderTugasMhs, rekap_dsn:renderRekapDsn
      };
       if (map[page]) {
         Promise.resolve(map[page](params)).catch(e=>{
@@ -1264,6 +1265,233 @@ window.closeSidebar = ()=>{
       toast('✅ Nilai disimpan!');
     };
 
+    // -- REKAP NILAI
+    async function renderRekapDsn(){
+  setContent('<div class="loading"><div class="spin"></div><span>Memuat rekap...</span></div>');
+  try {
+    const [mhsSnap, prtSnap, absSnap, nilaiSnap] = await Promise.all([
+      getDocs(query(collection(db,'users'),where('role','==','mahasiswa'))),
+      getDocs(collection(db,'pertemuan')),
+      getDocs(collection(db,'absensi')),
+      getDocs(collection(db,'nilai_akhir'))
+    ]);
+
+    const mhsList = [];
+    mhsSnap.forEach(d => mhsList.push({id:d.id,...d.data()}));
+    mhsList.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
+
+    const totalPrt = prtSnap.size;
+
+    // Bangun map absensi per mahasiswa
+    const absMap = {};
+    absSnap.forEach(d => {
+      const dat = d.data();
+      if(!absMap[dat.mahasiswaId]) absMap[dat.mahasiswaId] = [];
+      absMap[dat.mahasiswaId].push(dat.status);
+    });
+
+    // Bangun map nilai per mahasiswa
+    const nilaiMap = {};
+    nilaiSnap.forEach(d => nilaiMap[d.id] = d.data());
+
+    // Hitung statistik kelas
+    let totalHadirPct = 0, totalNilai = 0, jumlahAdaNilai = 0;
+    const risikoList = [];
+
+    mhsList.forEach(m => {
+      const abs = absMap[m.id] || [];
+      const hadir = abs.filter(s=>s==='hadir').length;
+      const total = abs.length;
+      const pct = total > 0 ? Math.round(hadir/total*100) : 0;
+      totalHadirPct += pct;
+
+      const n = nilaiMap[m.id];
+      const nilaiUTS = n?.nilaiUTS ?? null;
+      const nilaiUAS = n?.nilaiUAS ?? null;
+      const nilaiTugas = n?.nilaiTugas ?? null;
+      const nilaiKuis = n?.nilaiKuis ?? null;
+
+      // Hitung rata-rata nilai yang sudah diinput
+      const adaNilai = [nilaiUTS,nilaiUAS,nilaiTugas,nilaiKuis].filter(x=>x!==null);
+      const rataaNilai = adaNilai.length > 0 ? Math.round(adaNilai.reduce((s,x)=>s+x,0)/adaNilai.length) : null;
+      if(rataaNilai !== null){ totalNilai += rataaNilai; jumlahAdaNilai++; }
+
+      if(pct < 75 || (rataaNilai !== null && rataaNilai < 60)){
+        risikoList.push({...m, pct, rataaNilai});
+      }
+    });
+
+    const rataKehadiran = mhsList.length > 0 ? Math.round(totalHadirPct/mhsList.length) : 0;
+    const rataNilai = jumlahAdaNilai > 0 ? Math.round(totalNilai/jumlahAdaNilai) : null;
+
+    // ── Distribusi nilai
+    const distribusi = {A:0, B:0, C:0, D:0, E:0};
+    mhsList.forEach(m => {
+      const n = nilaiMap[m.id];
+      const adaNilai = [n?.nilaiUTS,n?.nilaiUAS,n?.nilaiTugas,n?.nilaiKuis].filter(x=>x!=null);
+      if(adaNilai.length === 0) return;
+      const rata = Math.round(adaNilai.reduce((s,x)=>s+x,0)/adaNilai.length);
+      if(rata>=80) distribusi.A++;
+      else if(rata>=70) distribusi.B++;
+      else if(rata>=60) distribusi.C++;
+      else if(rata>=50) distribusi.D++;
+      else distribusi.E++;
+    });
+
+    // ── Pertemuan dengan kehadiran terendah
+    const prtList = [];
+    prtSnap.forEach(d => prtList.push({id:d.id,...d.data()}));
+    prtList.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
+    const absPerPrt = {};
+    absSnap.forEach(d => {
+      const dat = d.data();
+      if(!absPerPrt[dat.pertemuanId]) absPerPrt[dat.pertemuanId] = {hadir:0,total:0};
+      absPerPrt[dat.pertemuanId].total++;
+      if(dat.status==='hadir') absPerPrt[dat.pertemuanId].hadir++;
+    });
+
+    let html = '';
+
+    // ── Kartu ringkasan atas
+    html += `
+      <div class="stats-grid" style="margin-bottom:16px">
+        <div class="stat-card" style="--c:#4f46e5">
+          <div class="stat-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('users')}</div>
+          <div class="stat-val">${mhsList.length}</div>
+          <div class="stat-lbl">Total Mahasiswa</div>
+        </div>
+        <div class="stat-card" style="--c:#059669">
+          <div class="stat-ico" style="background:#ecfdf5;color:#059669">${svgIcon('calendar')}</div>
+          <div class="stat-val">${totalPrt}<span style="font-size:14px;font-weight:500;color:var(--muted)">/16</span></div>
+          <div class="stat-lbl">Pertemuan</div>
+        </div>
+        <div class="stat-card" style="--c:${rataKehadiran>=75?'#059669':rataKehadiran>=50?'#d97706':'#dc2626'}">
+          <div class="stat-ico" style="background:${rataKehadiran>=75?'#ecfdf5':rataKehadiran>=50?'#fffbeb':'#fef2f2'};color:${rataKehadiran>=75?'#059669':rataKehadiran>=50?'#d97706':'#dc2626'}">${svgIcon('check-square')}</div>
+          <div class="stat-val" style="color:${rataKehadiran>=75?'var(--g)':rataKehadiran>=50?'var(--a)':'var(--r)'}">${rataKehadiran}%</div>
+          <div class="stat-lbl">Rata Kehadiran</div>
+        </div>
+        <div class="stat-card" style="--c:#7c3aed">
+          <div class="stat-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('award')}</div>
+          <div class="stat-val" style="color:${rataNilai===null?'var(--muted)':rataNilai>=70?'var(--g)':rataNilai>=50?'var(--a)':'var(--r)'}">${rataNilai??'-'}</div>
+          <div class="stat-lbl">Rata Nilai</div>
+        </div>
+      </div>`;
+
+    // ── Distribusi nilai
+    html += `
+      <div class="card" style="margin-bottom:16px">
+        <div class="section-title" style="margin-bottom:14px">📊 Distribusi Nilai Kelas</div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;text-align:center">
+          ${Object.entries(distribusi).map(([grade, jumlah])=>{
+            const colors = {A:'#059669',B:'#4f46e5',C:'#d97706',D:'#f97316',E:'#dc2626'};
+            const bgs = {A:'#ecfdf5',B:'#eef2ff',C:'#fffbeb',D:'#fff7ed',E:'#fef2f2'};
+            const pctBar = mhsList.length > 0 ? Math.round(jumlah/mhsList.length*100) : 0;
+            return `<div>
+              <div style="background:${bgs[grade]};border-radius:10px;padding:12px 6px">
+                <div style="font-size:22px;font-weight:800;color:${colors[grade]}">${jumlah}</div>
+                <div style="font-size:18px;font-weight:800;color:${colors[grade]}">${grade}</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px">${pctBar}%</div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center">A≥80 · B≥70 · C≥60 · D≥50 · E&lt;50</div>
+      </div>`;
+
+    // ── Mahasiswa berisiko
+    if(risikoList.length > 0){
+      html += `
+        <div class="card" style="margin-bottom:16px;border-left:3px solid var(--r)">
+          <div class="section-title" style="margin-bottom:12px;color:var(--r)">⚠️ Perlu Perhatian (${risikoList.length} mahasiswa)</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Kehadiran &lt;75% atau rata-rata nilai &lt;60</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${risikoList.map(m=>`
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--rb);border-radius:8px">
+                <div>
+                  <div style="font-weight:600;font-size:13px">${m.nama}</div>
+                  <div style="font-size:11px;color:var(--muted)">NIM: ${m.nim||'-'}</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <div style="text-align:center">
+                    <div style="font-size:13px;font-weight:700;color:${m.pct>=75?'var(--g)':'var(--r)'}">${m.pct}%</div>
+                    <div style="font-size:10px;color:var(--muted)">Hadir</div>
+                  </div>
+                  <div style="text-align:center">
+                    <div style="font-size:13px;font-weight:700;color:${m.rataaNilai===null?'var(--muted)':m.rataaNilai>=60?'var(--g)':'var(--r)'}">${m.rataaNilai??'-'}</div>
+                    <div style="font-size:10px;color:var(--muted)">Nilai</div>
+                  </div>
+                  <button class="btn-action btn-secondary" style="font-size:11px;padding:5px 8px" onclick="lihatDetailMhs('${m.id}','${(m.nama||'').replace(/'/g,"\\'")}')">Detail</button>
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>`;
+    }
+
+    // ── Tabel rekap per mahasiswa
+    html += `
+      <div class="section-title" style="margin-bottom:10px">📋 Rekap Per Mahasiswa</div>
+      <div class="mhs-table-wrap">
+        <table class="mhs-table">
+          <thead>
+            <tr>
+              <th>No</th>
+              <th>Nama / NIM</th>
+              <th>Hadir</th>
+              <th>Tidak</th>
+              <th>Izin</th>
+              <th>Kehadiran</th>
+              <th>UTS</th>
+              <th>UAS</th>
+              <th>Tugas</th>
+              <th>Kuis</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${mhsList.map((m,i)=>{
+              const abs = absMap[m.id] || [];
+              const hadir = abs.filter(s=>s==='hadir').length;
+              const tidak = abs.filter(s=>s==='tidak').length;
+              const izin  = abs.filter(s=>s==='izin').length;
+              const total = abs.length;
+              const pct = total > 0 ? Math.round(hadir/total*100) : 0;
+              const pctColor = pct>=75?'var(--g)':pct>=50?'var(--a)':'var(--r)';
+              const n = nilaiMap[m.id] || {};
+              const nilaiCell = (val) => val!=null
+                ? `<span style="font-weight:700;color:${val>=70?'var(--g)':val>=50?'var(--a)':'var(--r)'}">${val}</span>`
+                : `<span style="color:var(--muted)">-</span>`;
+              return `<tr>
+                <td style="color:var(--muted)">${i+1}</td>
+                <td>
+                  <div style="font-weight:600">${m.nama||'-'}</div>
+                  <div style="font-size:11px;color:var(--muted)">${m.nim||'-'}</div>
+                </td>
+                <td style="text-align:center"><span style="font-weight:700;color:var(--g)">${hadir}</span></td>
+                <td style="text-align:center"><span style="font-weight:700;color:var(--r)">${tidak}</span></td>
+                <td style="text-align:center"><span style="font-weight:700;color:var(--a)">${izin}</span></td>
+                <td>
+                  <div style="font-weight:700;color:${pctColor}">${pct}%</div>
+                  <div style="font-size:11px;color:var(--muted)">${hadir}/${total} pertemuan</div>
+                </td>
+                <td style="text-align:center">${nilaiCell(n.nilaiUTS)}</td>
+                <td style="text-align:center">${nilaiCell(n.nilaiUAS)}</td>
+                <td style="text-align:center">${nilaiCell(n.nilaiTugas)}</td>
+                <td style="text-align:center">${nilaiCell(n.nilaiKuis)}</td>
+                <td>
+                  <button class="btn-action btn-secondary" onclick="lihatDetailMhs('${m.id}','${(m.nama||'').replace(/'/g,"\\'")}')">Detail</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+
+    setContent(html);
+  } catch(e){
+    setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat rekap</h3><p>${e.message}</p></div>`);
+  }
+}
+    
     // ── FIX 3: renderNilaiDsn - tambah kolom Tugas & Kuis ──
     async function renderNilaiDsn(){
       const snap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
