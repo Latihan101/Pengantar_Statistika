@@ -28,66 +28,53 @@
     const db = getFirestore(app);
     window.db = db; window.auth = auth;
 
-// ══════════════════════════════════════════════════
-// CLOUDINARY UPLOAD (menggantikan Google Drive)
-// ══════════════════════════════════════════════════
-const CLOUDINARY_CLOUD_NAME = 'dfiuxdomm';
-const CLOUDINARY_UPLOAD_PRESET = 'educampus_unsigned';
+    const CLOUDINARY_CLOUD_NAME = 'dfiuxdomm';
+    const CLOUDINARY_UPLOAD_PRESET = 'educampus_unsigned';
 
-function uploadToCloudinary(file, subFolder, onProgress) {
-  return new Promise((resolve, reject) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-    formData.append('folder', subFolder);
+    function uploadToCloudinary(file, subFolder, onProgress) {
+      return new Promise((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+        formData.append('folder', subFolder);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`);
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.onload = () => {
+          try {
+            const res = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300 && res.secure_url) {
+              resolve({
+                fileUrl: res.secure_url.replace('/upload/', '/upload/fl_attachment/'),
+                viewUrl: res.secure_url,
+                fileId: res.public_id,
+                namaFile: file.name
+              });
+            } else reject(new Error(res.error?.message || 'Upload gagal'));
+          } catch (e) { reject(new Error('Respons tidak valid dari Cloudinary')); }
+        };
+        xhr.onerror = () => reject(new Error('Koneksi gagal saat upload'));
+        xhr.send(formData);
+      });
+    }
 
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`);
+    async function deleteFromCloudinary(fileId) {
+      console.log('Referensi file dihapus dari database:', fileId);
+    }
 
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && onProgress) {
-        onProgress(Math.round((e.loaded / e.total) * 100));
-      }
-    };
-
-    xhr.onload = () => {
-      try {
-        const res = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300 && res.secure_url) {
-          resolve({
-            fileUrl: res.secure_url.replace('/upload/', '/upload/fl_attachment/'),
-            viewUrl: res.secure_url,
-            fileId: res.public_id,
-            namaFile: file.name
-          });
-        } else {
-          reject(new Error(res.error?.message || 'Upload gagal'));
-        }
-      } catch (e) {
-        reject(new Error('Respons tidak valid dari Cloudinary'));
-      }
-    };
-
-    xhr.onerror = () => reject(new Error('Koneksi gagal saat upload'));
-    xhr.send(formData);
-  });
-}
-
-// File di Cloudinary tidak ikut terhapus (tetap ada di cloud, orphan),
-// tapi referensinya di Firestore terhapus sehingga hilang dari tampilan.
-async function deleteFromCloudinary(fileId) {
-  console.log('Referensi file dihapus dari database:', fileId);
-}
-
-window._uploadToDrive = uploadToCloudinary;
-window._deleteFromDrive = deleteFromCloudinary;
+    window._uploadToDrive = uploadToCloudinary;
+    window._deleteFromDrive = deleteFromCloudinary;
 
     let user = null, config = {}, _prt = null;
     let _unsubNotif = null;
     let authRole = 'mahasiswa', showReg = false;
     let _quill = null;
 
-    // ── Auth observer ─────────────────────────────────────────
+    // ── FIX 2: Simpan soalList di window agar tidak perlu JSON.stringify di attribute ──
+    window._currentSoalList = [];
+
     onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         try {
@@ -136,7 +123,6 @@ window._deleteFromDrive = deleteFromCloudinary;
         {p:'profil',i:'user',l:'Profil'},
       ];
       const nav = user.role === 'dosen' ? dsn : mhs;
-
       document.getElementById('navMenu').innerHTML =
         nav.map(n=>`
           <div class="nav-item" id="nav-${n.p}" onclick="go('${n.p}');closeSidebar()">
@@ -147,7 +133,6 @@ window._deleteFromDrive = deleteFromCloudinary;
           <span class="nav-ico">${svgIcon('log-out')}</span>
           <span class="nav-lbl">Keluar</span>
         </div>`;
-
       const bnKeys = user.role==='dosen'
         ? ['dashboard','pertemuan','nilai_dsn','notifikasi']
         : ['dashboard','pertemuan','absensi_mhs','nilai_mhs'];
@@ -230,7 +215,6 @@ window._deleteFromDrive = deleteFromCloudinary;
     window.openSidebar = ()=>{ document.getElementById('sidebar').classList.add('open'); document.getElementById('sbOverlay').classList.add('show'); document.body.style.overflow='hidden'; };
     window.closeSidebar = ()=>{ document.getElementById('sidebar').classList.remove('open'); document.getElementById('sbOverlay').classList.remove('show'); document.body.style.overflow=''; };
 
-    // ── AUTH ──────────────────────────────────────────────────
     window.setRole = (r)=>{
       authRole=r;
       document.getElementById('tabM').classList.toggle('on',r==='mahasiswa');
@@ -269,6 +253,12 @@ window._deleteFromDrive = deleteFromCloudinary;
     async function renderDashboard(){
       const isDsn=user.role==='dosen';
       const greeting = getGreeting();
+      // ── FIX 1: Ambil nama matkul dari config untuk semua role ──
+      const namaMatkul = config.NAMA_MATKUL || 'EduCampus';
+      const sks = config.SKS || 0;
+      const jadwal = config.JADWAL || '-';
+      const ruang = config.RUANG || '-';
+
       if(isDsn){
         const [mhsSnap, prtSnap] = await Promise.all([
           getDocs(query(collection(db,'users'),where('role','==','mahasiswa'))),
@@ -278,7 +268,13 @@ window._deleteFromDrive = deleteFromCloudinary;
           <div class="dash-hero">
             <div class="dash-greet">${greeting}</div>
             <div class="dash-name">${user.nama}</div>
-            <div class="dash-sub">${config.NAMA_MATKUL||'EduCampus'} · ${config.SKS||0} SKS</div>
+            <div class="dash-sub">${namaMatkul} · ${sks} SKS</div>
+          </div>
+          <div class="matkul-info-bar">
+            <div class="matkul-info-item"><span class="matkul-info-label">📚 Mata Kuliah</span><span class="matkul-info-val">${namaMatkul}</span></div>
+            <div class="matkul-info-item"><span class="matkul-info-label">⏰ Jadwal</span><span class="matkul-info-val">${jadwal}</span></div>
+            <div class="matkul-info-item"><span class="matkul-info-label">🚪 Ruang</span><span class="matkul-info-val">${ruang}</span></div>
+            <div class="matkul-info-item"><span class="matkul-info-label">📋 SKS</span><span class="matkul-info-val">${sks} SKS</span></div>
           </div>
           <div class="stats-grid">
             <div class="stat-card" style="--c:#4f46e5">
@@ -293,36 +289,24 @@ window._deleteFromDrive = deleteFromCloudinary;
             </div>
             <div class="stat-card" style="--c:#d97706">
               <div class="stat-ico" style="background:#fffbeb;color:#d97706">${svgIcon('bell')}</div>
-              <div class="stat-val" style="font-size:14px">${config.JADWAL||'-'}</div>
+              <div class="stat-val" style="font-size:14px">${jadwal}</div>
               <div class="stat-lbl">Jadwal</div>
             </div>
             <div class="stat-card" style="--c:#7c3aed">
               <div class="stat-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('edit')}</div>
-              <div class="stat-val" style="font-size:13px">${config.RUANG||'-'}</div>
+              <div class="stat-val" style="font-size:13px">${ruang}</div>
               <div class="stat-lbl">Ruang</div>
             </div>
           </div>
           <div class="quick-actions">
-  <div class="section-title">Aksi Cepat</div>
-  <div class="qa-grid">
-    <div class="qa-card" onclick="go('pertemuan')">
-      <div class="qa-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('calendar')}</div>
-      <div>Kelola Pertemuan</div>
-    </div>
-    <div class="qa-card" onclick="go('mahasiswa')">
-      <div class="qa-ico" style="background:#ecfdf5;color:#059669">${svgIcon('users')}</div>
-      <div>Data Mahasiswa</div>
-    </div>
-    <div class="qa-card" onclick="go('nilai_dsn')">
-      <div class="qa-ico" style="background:#fffbeb;color:#d97706">${svgIcon('edit')}</div>
-      <div>Input Nilai</div>
-    </div>
-    <div class="qa-card" onclick="go('notifikasi')">
-      <div class="qa-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('bell')}</div>
-      <div>Notifikasi</div>
-    </div>
-  </div>
-</div>`);
+            <div class="section-title">Aksi Cepat</div>
+            <div class="qa-grid">
+              <div class="qa-card" onclick="go('pertemuan')"><div class="qa-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('calendar')}</div><div>Kelola Pertemuan</div></div>
+              <div class="qa-card" onclick="go('mahasiswa')"><div class="qa-ico" style="background:#ecfdf5;color:#059669">${svgIcon('users')}</div><div>Data Mahasiswa</div></div>
+              <div class="qa-card" onclick="go('nilai_dsn')"><div class="qa-ico" style="background:#fffbeb;color:#d97706">${svgIcon('edit')}</div><div>Input Nilai</div></div>
+              <div class="qa-card" onclick="go('notifikasi')"><div class="qa-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('bell')}</div><div>Notifikasi</div></div>
+            </div>
+          </div>`);
       } else {
         const [absSnap, nilaiSnap] = await Promise.all([
           getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id))),
@@ -335,6 +319,12 @@ window._deleteFromDrive = deleteFromCloudinary;
             <div class="dash-greet">${greeting}</div>
             <div class="dash-name">${user.nama}</div>
             <div class="dash-sub">NIM ${user.nim||'-'} · ${user.prodi||''}</div>
+          </div>
+          <div class="matkul-info-bar">
+            <div class="matkul-info-item"><span class="matkul-info-label">📚 Mata Kuliah</span><span class="matkul-info-val">${namaMatkul}</span></div>
+            <div class="matkul-info-item"><span class="matkul-info-label">⏰ Jadwal</span><span class="matkul-info-val">${jadwal}</span></div>
+            <div class="matkul-info-item"><span class="matkul-info-label">🚪 Ruang</span><span class="matkul-info-val">${ruang}</span></div>
+            <div class="matkul-info-item"><span class="matkul-info-label">📋 SKS</span><span class="matkul-info-val">${sks} SKS</span></div>
           </div>
           <div class="stats-grid">
             <div class="stat-card" style="--c:#4f46e5">
@@ -378,7 +368,6 @@ window._deleteFromDrive = deleteFromCloudinary;
       return'Selamat Malam 🌙';
     }
 
-    // ── PERTEMUAN ────────────────────────────────────────────
     async function renderPertemuan(){
       const isDsn = user.role === 'dosen';
       const snap=await getDocs(collection(db,'pertemuan'));
@@ -435,14 +424,10 @@ window._deleteFromDrive = deleteFromCloudinary;
       else if(tab==='absensi') await renderAbsensiTab();
     };
 
-    // ══════════════════════════════════════════════════
-    // ── MATERI TAB ────────────────────────────────────
-    // ══════════════════════════════════════════════════
     async function renderMateriTab(){
       const isDsn = user.role === 'dosen';
       const tc = document.getElementById('tabContent');
       if(!tc) return;
-
       let items = [];
       try {
         const snap = await getDocs(collection(db,'pertemuan',_prt.id,'materi'));
@@ -452,7 +437,6 @@ window._deleteFromDrive = deleteFromCloudinary;
         tc.innerHTML=`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat</h3><p>${e.message}</p></div>`;
         return;
       }
-
       let html = `<div class="materi-list" id="materi-list">`;
       if(items.length === 0){
         html += `<div class="empty"><div class="empty-ico">📄</div><h3>Belum ada materi</h3><p>${isDsn?'Tambahkan materi di bawah.':'Dosen belum menambahkan materi.'}</p></div>`;
@@ -465,7 +449,7 @@ window._deleteFromDrive = deleteFromCloudinary;
                 <div class="materi-icon-wrap">${icon}</div>
                 <div class="materi-info">
                   <div class="materi-judul">${m.judul}</div>
-                  <div class="materi-meta">${m.namaFile||''} ${m.ukuran?'· '+m.ukuran:''} · <span style="color:#059669">📁 Google Drive</span></div>
+                  <div class="materi-meta">${m.namaFile||''} ${m.ukuran?'· '+m.ukuran:''}</div>
                 </div>
                 <div class="materi-actions">
                   <a href="${m.fileUrl}" target="_blank" class="btn-action btn-primary">${svgIcon('download')} Unduh</a>
@@ -492,7 +476,6 @@ window._deleteFromDrive = deleteFromCloudinary;
         });
       }
       html += `</div>`;
-
       if(isDsn){
         html += `
           <div class="add-materi-card">
@@ -506,15 +489,15 @@ window._deleteFromDrive = deleteFromCloudinary;
               <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
                 <div class="upload-ico">${svgIcon('upload')}</div>
                 <div class="upload-txt">Klik untuk pilih file</div>
-                <div class="upload-sub">PDF, PPT, Gambar, Video — semua format didukung · Tersimpan di Google Drive 📁</div>
+                <div class="upload-sub">PDF, PPT, Gambar, Video — semua format didukung</div>
                 <input type="file" id="fileInput" style="display:none" accept="*/*" onchange="previewFile(this)">
               </div>
               <div id="filePreview" style="display:none" class="file-preview-box"></div>
               <div id="uploadProgress" style="display:none" class="upload-progress">
                 <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-                <div class="progress-txt" id="progressTxt">Mengupload ke Google Drive...</div>
+                <div class="progress-txt" id="progressTxt">Mengupload...</div>
               </div>
-              <button class="btn-submit" id="submitFileBtn" onclick="uploadMateriFile()">Upload & Simpan ke Drive</button>
+              <button class="btn-submit" id="submitFileBtn" onclick="uploadMateriFile()">Upload & Simpan</button>
             </div>
             <div id="formTeks" style="display:none">
               <input class="inp" id="judulTeks" placeholder="Judul materi...">
@@ -523,9 +506,7 @@ window._deleteFromDrive = deleteFromCloudinary;
             </div>
           </div>`;
       }
-
       tc.innerHTML = html;
-
       if(isDsn){
         _quill = new Quill('#quillEditor', {
           theme: 'snow',
@@ -571,36 +552,25 @@ window._deleteFromDrive = deleteFromCloudinary;
       document.getElementById('uploadArea').style.display='none';
     };
 
-    // ══ UPLOAD MATERI → GOOGLE DRIVE ══
     window.uploadMateriFile=async()=>{
       const judul=document.getElementById('judulFile').value.trim();
       const fileInput=document.getElementById('fileInput');
       const file=fileInput.files[0];
       if(!judul) return toast('⚠️ Isi judul materi dulu');
       if(!file) return toast('⚠️ Pilih file dulu');
-
       const size=file.size>1024*1024?(file.size/1024/1024).toFixed(1)+' MB':(file.size/1024).toFixed(0)+' KB';
       document.getElementById('uploadProgress').style.display='block';
       document.getElementById('submitFileBtn').disabled=true;
-
       try {
         const result = await window._uploadToDrive(file, 'materi_'+_prt.id, (pct)=>{
           document.getElementById('progressFill').style.width=pct+'%';
-          document.getElementById('progressTxt').textContent=`Mengupload ke Google Drive ${pct}%...`;
+          document.getElementById('progressTxt').textContent=`Mengupload ${pct}%...`;
         });
-
         await addDoc(collection(db,'pertemuan',_prt.id,'materi'),{
-          judul,
-          tipe: 'file',
-          fileUrl: result.fileUrl,
-          viewUrl: result.viewUrl,
-          fileId: result.fileId,         // ID Drive untuk hapus
-          namaFile: file.name,
-          ukuran: size,
-          createdAt: serverTimestamp()
+          judul, tipe:'file', fileUrl:result.fileUrl, viewUrl:result.viewUrl,
+          fileId:result.fileId, namaFile:file.name, ukuran:size, createdAt:serverTimestamp()
         });
-
-        toast('✅ Materi berhasil diupload ke Google Drive!');
+        toast('✅ Materi berhasil diupload!');
         await renderMateriTab();
       } catch(e) {
         toast('❌ Upload gagal: '+e.message);
@@ -615,9 +585,7 @@ window._deleteFromDrive = deleteFromCloudinary;
       if(!_quill) return;
       if(_quill.getText().trim().length===0) return toast('⚠️ Isi konten materi dulu');
       const konten=_quill.root.innerHTML;
-      await addDoc(collection(db,'pertemuan',_prt.id,'materi'),{
-        judul,tipe:'teks',konten,createdAt:serverTimestamp()
-      });
+      await addDoc(collection(db,'pertemuan',_prt.id,'materi'),{judul,tipe:'teks',konten,createdAt:serverTimestamp()});
       toast('✅ Materi teks tersimpan!');
       await renderMateriTab();
     };
@@ -656,25 +624,19 @@ window._deleteFromDrive = deleteFromCloudinary;
       await renderMateriTab();
     };
 
-    // ══ HAPUS MATERI → hapus dari Drive juga ══
     window.hapusMateri=async(materiId, fileId)=>{
       if(!confirm('Hapus materi ini?'))return;
-      // Hapus dari Google Drive
       if(fileId) await window._deleteFromDrive(fileId);
-      // Hapus dari Firestore
       await deleteDoc(doc(db,'pertemuan',_prt.id,'materi',materiId));
       toast('🗑️ Materi dihapus');
       await renderMateriTab();
     };
 
-    // ══════════════════════════════════════════════════
-    // ── TUGAS TAB ─────────────────────────────────────
-    // ══════════════════════════════════════════════════
+    // ── TUGAS TAB ─────────────────────────────────────────────
     async function renderTugasTab(){
       const isDsn = user.role === 'dosen';
       const tc = document.getElementById('tabContent');
       if(!tc) return;
-
       let tugasList = [];
       try {
         const snap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas'));
@@ -684,9 +646,7 @@ window._deleteFromDrive = deleteFromCloudinary;
         tc.innerHTML=`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat tugas</h3><p>${e.message}</p></div>`;
         return;
       }
-
       let html = '';
-
       if(isDsn){
         if(tugasList.length === 0){
           html += `<div class="empty" style="padding:40px 20px"><div class="empty-ico">📝</div><h3>Belum ada tugas</h3><p>Tambahkan tugas pertama untuk pertemuan ini.</p></div>`;
@@ -694,32 +654,23 @@ window._deleteFromDrive = deleteFromCloudinary;
           html += `<div class="tugas-list">`;
           for(const t of tugasList){
             let jumlahKumpul = 0;
-            try {
-              const kumpulSnap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas',t.id,'pengumpulan'));
-              jumlahKumpul = kumpulSnap.size;
-            } catch(e){}
+            try { const kumpulSnap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas',t.id,'pengumpulan')); jumlahKumpul = kumpulSnap.size; } catch(e){}
             const batas = t.batasWaktu ? new Date(t.batasWaktu).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Tidak ada batas';
             html += `
               <div class="tugas-card">
                 <div class="tugas-card-header">
-                  <div>
-                    <div class="tugas-judul">${t.judul}</div>
-                    <div class="tugas-meta">${svgIcon('clock')} Batas: ${batas}</div>
-                  </div>
+                  <div><div class="tugas-judul">${t.judul}</div><div class="tugas-meta">${svgIcon('clock')} Batas: ${batas}</div></div>
                   <div style="display:flex;gap:6px;align-items:flex-start">
                     <span class="badge badge-blue">${jumlahKumpul} Terkumpul</span>
                     <button class="btn-action btn-danger" onclick="hapusTugas('${t.id}')">${svgIcon('trash')}</button>
                   </div>
                 </div>
                 <div class="tugas-deskripsi">${t.deskripsi||''}</div>
-                <div style="margin-top:10px">
-                  <button class="btn-action btn-secondary" onclick="lihatPengumpulan('${t.id}','${t.judul.replace(/'/g,"\\'")}')">📋 Lihat Pengumpulan (${jumlahKumpul})</button>
-                </div>
+                <div style="margin-top:10px"><button class="btn-action btn-secondary" onclick="lihatPengumpulan('${t.id}','${t.judul.replace(/'/g,"\\'")}')">📋 Lihat Pengumpulan (${jumlahKumpul})</button></div>
               </div>`;
           }
           html += `</div>`;
         }
-
         html += `
           <div class="add-materi-card">
             <div class="add-materi-title">${svgIcon('plus')} Buat Tugas Baru</div>
@@ -732,23 +683,16 @@ window._deleteFromDrive = deleteFromCloudinary;
             </div>
           </div>`;
       } else {
-        // Mahasiswa
         if(tugasList.length === 0){
           html += `<div class="empty"><div class="empty-ico">📝</div><h3>Belum ada tugas</h3><p>Dosen belum memberikan tugas untuk pertemuan ini.</p></div>`;
         } else {
           html += `<div class="tugas-list">`;
           for(const t of tugasList){
-            let sudahKumpul = false;
-            let kumpulData = null;
-            try {
-              const kSnap = await getDoc(doc(db,'pertemuan',_prt.id,'tugas',t.id,'pengumpulan',user.id));
-              if(kSnap.exists()){ sudahKumpul = true; kumpulData = kSnap.data(); }
-            } catch(e){}
+            let sudahKumpul = false; let kumpulData = null;
+            try { const kSnap = await getDoc(doc(db,'pertemuan',_prt.id,'tugas',t.id,'pengumpulan',user.id)); if(kSnap.exists()){ sudahKumpul=true; kumpulData=kSnap.data(); } } catch(e){}
             const batas = t.batasWaktu ? new Date(t.batasWaktu) : null;
             const terlambat = batas && new Date() > batas;
             const batasStr = batas ? batas.toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Tidak ada batas';
-
-            // bisaEdit: sudah kumpul DAN belum melewati batas waktu
             const bisaEdit = sudahKumpul && !terlambat;
             const catatanLama = (kumpulData?.catatan || '').replace(/"/g,'&quot;');
             const namaFileLama = kumpulData?.namaFile || '';
@@ -756,46 +700,26 @@ window._deleteFromDrive = deleteFromCloudinary;
             const fileIdLama = (kumpulData?.fileId || '').replace(/'/g,"\\'");
             const viewUrlLama = (kumpulData?.viewUrl || '').replace(/'/g,"\\'");
             const namaFileLamaEsc = namaFileLama.replace(/'/g,"\\'");
-
             html += `
               <div class="tugas-card">
                 <div class="tugas-card-header">
-                  <div>
-                    <div class="tugas-judul">${t.judul}</div>
-                    <div class="tugas-meta">${svgIcon('clock')} Batas: ${batasStr}</div>
-                  </div>
-                  ${sudahKumpul
-                    ? `<span class="badge badge-green">✅ Terkumpul</span>`
-                    : terlambat
-                      ? `<span class="badge badge-red">⏰ Terlambat</span>`
-                      : `<span class="badge badge-yellow">⏳ Belum Kumpul</span>`}
+                  <div><div class="tugas-judul">${t.judul}</div><div class="tugas-meta">${svgIcon('clock')} Batas: ${batasStr}</div></div>
+                  ${sudahKumpul?`<span class="badge badge-green">✅ Terkumpul</span>`:terlambat?`<span class="badge badge-red">⏰ Terlambat</span>`:`<span class="badge badge-yellow">⏳ Belum Kumpul</span>`}
                 </div>
                 <div class="tugas-deskripsi">${t.deskripsi||''}</div>
-
-                ${sudahKumpul ? `
+                ${sudahKumpul?`
                   <div class="kumpul-info" id="kumpulInfo_${t.id}">
                     <div style="font-size:12px;color:var(--g);font-weight:600">✅ Tugas sudah dikumpulkan</div>
                     ${kumpulData?.namaFile?`<div style="font-size:12px;color:var(--muted);margin-top:4px">📎 ${kumpulData.namaFile}</div>`:''}
                     ${kumpulData?.fileUrl?`<a href="${kumpulData.fileUrl}" target="_blank" class="btn-action btn-primary" style="margin-top:8px;display:inline-flex">${svgIcon('download')} Lihat File Saya</a>`:''}
                     ${kumpulData?.catatan?`<div style="font-size:12px;color:var(--ink2);margin-top:4px">"${kumpulData.catatan}"</div>`:''}
-                    ${bisaEdit ? `
-                      <div>
-                        <button class="btn-action btn-secondary" style="margin-top:10px" onclick="toggleEditTugas('${t.id}')">
-                          ${svgIcon('edit')} Edit Jawaban
-                        </button>
-                        <div style="font-size:11px;color:var(--muted);margin-top:6px">Kamu masih bisa mengubah jawaban sebelum batas waktu berakhir.</div>
-                      </div>
-                    ` : `
-                      <div style="font-size:11px;color:var(--muted);margin-top:8px">Waktu pengumpulan telah berakhir, jawaban tidak bisa diubah lagi.</div>
-                    `}
-                  </div>
-                ` : ''}
-
-                <div class="kumpul-form" id="kumpulForm_${t.id}" style="${sudahKumpul ? 'display:none' : ''}">
-                  <textarea class="inp" id="kumpulCatatan_${t.id}" placeholder="Catatan / komentar (opsional)..." style="resize:vertical;min-height:60px;margin-top:10px">${sudahKumpul ? catatanLama : ''}</textarea>
+                    ${bisaEdit?`<div><button class="btn-action btn-secondary" style="margin-top:10px" onclick="toggleEditTugas('${t.id}')">${svgIcon('edit')} Edit Jawaban</button><div style="font-size:11px;color:var(--muted);margin-top:6px">Kamu masih bisa mengubah jawaban sebelum batas waktu berakhir.</div></div>`:`<div style="font-size:11px;color:var(--muted);margin-top:8px">Waktu pengumpulan telah berakhir, jawaban tidak bisa diubah lagi.</div>`}
+                  </div>`:''}
+                <div class="kumpul-form" id="kumpulForm_${t.id}" style="${sudahKumpul?'display:none':''}">
+                  <textarea class="inp" id="kumpulCatatan_${t.id}" placeholder="Catatan / komentar (opsional)..." style="resize:vertical;min-height:60px;margin-top:10px">${sudahKumpul?catatanLama:''}</textarea>
                   <div style="margin-bottom:10px">
                     <label class="upload-area" style="padding:16px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center" for="kumpulFile_${t.id}">
-                      ${svgIcon('upload')}<span id="kumpulFileLabel_${t.id}">${namaFileLama ? '📎 '+namaFileLama+' (klik untuk ganti file)' : 'Lampirkan file tugas (opsional)'}</span>
+                      ${svgIcon('upload')}<span id="kumpulFileLabel_${t.id}">${namaFileLama?'📎 '+namaFileLama+' (klik untuk ganti file)':'Lampirkan file tugas (opsional)'}</span>
                       <input type="file" id="kumpulFile_${t.id}" style="display:none" onchange="previewKumpulFile('${t.id}',this)">
                     </label>
                   </div>
@@ -805,9 +729,9 @@ window._deleteFromDrive = deleteFromCloudinary;
                   </div>
                   <div style="display:flex;gap:8px">
                     <button class="btn-submit" ${terlambat?'style="background:#d97706"':''} onclick="kumpulTugas('${t.id}','${fileUrlLama}','${namaFileLamaEsc}','${fileIdLama}','${viewUrlLama}')">
-                      ${sudahKumpul ? '💾 Simpan Perubahan' : (terlambat ? '⏰ Kumpul (Terlambat)' : '📤 Kumpulkan Tugas')}
+                      ${sudahKumpul?'💾 Simpan Perubahan':(terlambat?'⏰ Kumpul (Terlambat)':'📤 Kumpulkan Tugas')}
                     </button>
-                    ${sudahKumpul ? `<button class="btn-action btn-secondary" onclick="toggleEditTugas('${t.id}')">Batal</button>` : ''}
+                    ${sudahKumpul?`<button class="btn-action btn-secondary" onclick="toggleEditTugas('${t.id}')">Batal</button>`:''}
                   </div>
                 </div>
               </div>`;
@@ -815,137 +739,104 @@ window._deleteFromDrive = deleteFromCloudinary;
           html += `</div>`;
         }
       }
-
       tc.innerHTML = html;
     }
 
-    window.simpanTugas = async()=>{
-      const judul = document.getElementById('tugasJudul').value.trim();
-      const deskripsi = document.getElementById('tugasDeskripsi').value.trim();
-      const batas = document.getElementById('tugasBatas').value;
+    window.simpanTugas=async()=>{
+      const judul=document.getElementById('tugasJudul').value.trim();
+      const deskripsi=document.getElementById('tugasDeskripsi').value.trim();
+      const batas=document.getElementById('tugasBatas').value;
       if(!judul) return toast('⚠️ Isi judul tugas dulu');
-      await addDoc(collection(db,'pertemuan',_prt.id,'tugas'),{
-        judul, deskripsi, batasWaktu: batas||null, createdAt: serverTimestamp()
-      });
+      await addDoc(collection(db,'pertemuan',_prt.id,'tugas'),{judul,deskripsi,batasWaktu:batas||null,createdAt:serverTimestamp()});
       toast('✅ Tugas berhasil dibuat!');
       await renderTugasTab();
     };
 
-    window.hapusTugas = async(tugasId)=>{
+    window.hapusTugas=async(tugasId)=>{
       if(!confirm('Hapus tugas ini?')) return;
       await deleteDoc(doc(db,'pertemuan',_prt.id,'tugas',tugasId));
       toast('🗑️ Tugas dihapus');
       await renderTugasTab();
     };
 
-    window.previewKumpulFile = (tugasId, input)=>{
-      const file = input.files[0]; if(!file) return;
-      const label = document.getElementById('kumpulFileLabel_'+tugasId);
-      if(label) label.textContent = '📎 ' + file.name;
+    window.previewKumpulFile=(tugasId,input)=>{
+      const file=input.files[0]; if(!file)return;
+      const label=document.getElementById('kumpulFileLabel_'+tugasId);
+      if(label) label.textContent='📎 '+file.name;
     };
 
-    // Toggle antara tampilan "info pengumpulan" dan "form edit"
-    window.toggleEditTugas = (tugasId)=>{
-      const info = document.getElementById('kumpulInfo_'+tugasId);
-      const form = document.getElementById('kumpulForm_'+tugasId);
-      if(!form) return;
-      const showForm = form.style.display === 'none';
-      form.style.display = showForm ? 'block' : 'none';
-      if(info) info.style.display = showForm ? 'none' : 'block';
+    window.toggleEditTugas=(tugasId)=>{
+      const info=document.getElementById('kumpulInfo_'+tugasId);
+      const form=document.getElementById('kumpulForm_'+tugasId);
+      if(!form)return;
+      const showForm=form.style.display==='none';
+      form.style.display=showForm?'block':'none';
+      if(info) info.style.display=showForm?'none':'block';
     };
 
-    // ══ KUMPUL / EDIT TUGAS → Upload ke Cloudinary ══
-    // oldFileUrl/oldNamaFile/oldFileId/oldViewUrl: data file yang sudah ada sebelumnya (untuk edit),
-    // dikirim kosong ('') saat submit pertama kali.
-    window.kumpulTugas = async(tugasId, oldFileUrl, oldNamaFile, oldFileId, oldViewUrl) => {
-      const catatanEl = document.getElementById('kumpulCatatan_' + tugasId);
-      const fileInput = document.getElementById('kumpulFile_' + tugasId);
-
-      if (!catatanEl) {
-        toast('❌ Form tidak ditemukan, coba refresh halaman');
-        return;
-      }
-
-      const catatan = catatanEl.value.trim() || '';
-      const file = fileInput?.files[0];
-
-      const doSave = async(fileUrl, namaFile, fileId, viewUrl) => {
-        await setDoc(doc(db, 'pertemuan', _prt.id, 'tugas', tugasId, 'pengumpulan', user.id), {
-          mahasiswaId: user.id, nama: user.nama, nim: user.nim || '-',
-          catatan,
-          fileUrl: fileUrl || null,
-          namaFile: namaFile || null,
-          fileId: fileId || null,
-          viewUrl: viewUrl || null,
-          waktuKumpul: serverTimestamp()
+    window.kumpulTugas=async(tugasId,oldFileUrl,oldNamaFile,oldFileId,oldViewUrl)=>{
+      const catatanEl=document.getElementById('kumpulCatatan_'+tugasId);
+      const fileInput=document.getElementById('kumpulFile_'+tugasId);
+      if(!catatanEl){ toast('❌ Form tidak ditemukan, coba refresh halaman'); return; }
+      const catatan=catatanEl.value.trim()||'';
+      const file=fileInput?.files[0];
+      const doSave=async(fileUrl,namaFile,fileId,viewUrl)=>{
+        await setDoc(doc(db,'pertemuan',_prt.id,'tugas',tugasId,'pengumpulan',user.id),{
+          mahasiswaId:user.id,nama:user.nama,nim:user.nim||'-',catatan,
+          fileUrl:fileUrl||null,namaFile:namaFile||null,fileId:fileId||null,viewUrl:viewUrl||null,waktuKumpul:serverTimestamp()
         });
         toast('✅ Jawaban tersimpan!');
         await renderTugasTab();
       };
-
-      if (file) {
-        // Ada file baru dipilih -> upload, gantikan file lama (file lama jadi orphan di Cloudinary)
-        const prog = document.getElementById('kumpulProgress_' + tugasId);
-        const fill = document.getElementById('kumpulProgressFill_' + tugasId);
-        const txt = document.getElementById('kumpulProgressTxt_' + tugasId);
-
-        const submitBtn = document.querySelector(`[onclick^="kumpulTugas('${tugasId}'"]`);
-        if (submitBtn) submitBtn.disabled = true;
-
-        if (prog) prog.style.display = 'block';
-
+      if(file){
+        const prog=document.getElementById('kumpulProgress_'+tugasId);
+        const fill=document.getElementById('kumpulProgressFill_'+tugasId);
+        const txt=document.getElementById('kumpulProgressTxt_'+tugasId);
+        const submitBtn=document.querySelector(`[onclick^="kumpulTugas('${tugasId}'"]`);
+        if(submitBtn) submitBtn.disabled=true;
+        if(prog) prog.style.display='block';
         try {
-          const subFolder = 'tugas_' + _prt.id + '_' + tugasId;
-          const result = await window._uploadToDrive(file, subFolder, (pct) => {
-            if (fill) fill.style.width = pct + '%';
-            if (txt) txt.textContent = 'Mengupload ' + pct + '%...';
+          const subFolder='tugas_'+_prt.id+'_'+tugasId;
+          const result=await window._uploadToDrive(file,subFolder,(pct)=>{
+            if(fill) fill.style.width=pct+'%';
+            if(txt) txt.textContent='Mengupload '+pct+'%...';
           });
-          await doSave(result.fileUrl, file.name, result.fileId, result.viewUrl);
+          await doSave(result.fileUrl,file.name,result.fileId,result.viewUrl);
         } catch(e) {
-          toast('❌ Upload gagal: ' + e.message);
-          if (prog) prog.style.display = 'none';
-          if (submitBtn) submitBtn.disabled = false;
+          toast('❌ Upload gagal: '+e.message);
+          if(prog) prog.style.display='none';
+          if(submitBtn) submitBtn.disabled=false;
         }
       } else {
-        // Tidak pilih file baru -> pertahankan file lama (kalau sedang edit) atau null (submit pertama kali)
-        await doSave(oldFileUrl || null, oldNamaFile || null, oldFileId || null, oldViewUrl || null);
+        await doSave(oldFileUrl||null,oldNamaFile||null,oldFileId||null,oldViewUrl||null);
       }
     };
 
-    window.lihatPengumpulan = async(tugasId, judulTugas)=>{
-      const snap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas',tugasId,'pengumpulan'));
-      const list = [];
-      snap.forEach(d => list.push(d.data()));
-      let html = '';
-      if(list.length===0){
-        html = `<div class="empty" style="padding:30px"><div class="empty-ico">📭</div><h3>Belum ada yang mengumpulkan</h3></div>`;
-      } else {
-        html = `<div style="font-size:13px;color:var(--muted);margin-bottom:12px">${list.length} mahasiswa telah mengumpulkan</div>`;
-        html += list.map(k=>{
-          const waktu = k.waktuKumpul?.toDate ? k.waktuKumpul.toDate().toLocaleDateString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '-';
+    window.lihatPengumpulan=async(tugasId,judulTugas)=>{
+      const snap=await getDocs(collection(db,'pertemuan',_prt.id,'tugas',tugasId,'pengumpulan'));
+      const list=[];snap.forEach(d=>list.push(d.data()));
+      let html='';
+      if(list.length===0){html=`<div class="empty" style="padding:30px"><div class="empty-ico">📭</div><h3>Belum ada yang mengumpulkan</h3></div>`;}
+      else{
+        html=`<div style="font-size:13px;color:var(--muted);margin-bottom:12px">${list.length} mahasiswa telah mengumpulkan</div>`;
+        html+=list.map(k=>{
+          const waktu=k.waktuKumpul?.toDate?k.waktuKumpul.toDate().toLocaleDateString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'-';
           return `<div class="kumpul-item">
             <div style="font-weight:600;font-size:14px">${k.nama}</div>
             <div style="font-size:12px;color:var(--muted)">NIM: ${k.nim||'-'} · ${waktu}</div>
             ${k.catatan?`<div style="font-size:13px;color:var(--ink2);margin-top:4px;padding:8px;background:var(--bg);border-radius:6px">"${k.catatan}"</div>`:''}
-            ${k.fileUrl?`
-              <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-                <a href="${k.fileUrl}" target="_blank" class="btn-action btn-primary">${svgIcon('download')} ${k.namaFile||'Unduh File'}</a>
-                ${k.viewUrl?`<a href="${k.viewUrl}" target="_blank" class="btn-action btn-secondary">👁️ Lihat di Drive</a>`:''}
-              </div>`:''}
+            ${k.fileUrl?`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><a href="${k.fileUrl}" target="_blank" class="btn-action btn-primary">${svgIcon('download')} ${k.namaFile||'Unduh File'}</a>${k.viewUrl?`<a href="${k.viewUrl}" target="_blank" class="btn-action btn-secondary">👁️ Lihat</a>`:''}</div>`:''}
           </div>`;
         }).join('');
       }
-      openModal('Pengumpulan: '+judulTugas, html);
+      openModal('Pengumpulan: '+judulTugas,html);
     };
 
-    // ══════════════════════════════════════════════════
-    // ── KUIS TAB ──────────────────────────────────────
-    // ══════════════════════════════════════════════════
+    // ── KUIS TAB ──────────────────────────────────────────────
     async function renderKuisTab(){
       const isDsn = user.role === 'dosen';
       const tc = document.getElementById('tabContent');
       if(!tc) return;
-
       let kuisList = [];
       try {
         const snap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis'));
@@ -955,24 +846,19 @@ window._deleteFromDrive = deleteFromCloudinary;
         tc.innerHTML=`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat kuis</h3><p>${e.message}</p></div>`;
         return;
       }
-
       let html = '';
-
       if(isDsn){
         if(kuisList.length===0){
-          html += `<div class="empty" style="padding:40px 20px"><div class="empty-ico">❓</div><h3>Belum ada kuis</h3><p>Buat kuis pilihan ganda untuk mahasiswa.</p></div>`;
+          html+=`<div class="empty" style="padding:40px 20px"><div class="empty-ico">❓</div><h3>Belum ada kuis</h3><p>Buat kuis pilihan ganda untuk mahasiswa.</p></div>`;
         } else {
-          html += `<div class="tugas-list">`;
+          html+=`<div class="tugas-list">`;
           for(const k of kuisList){
-            const pertanyaanSnap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'pertanyaan'));
-            const jawabanSnap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'jawaban'));
-            html += `
+            const pertanyaanSnap=await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'pertanyaan'));
+            const jawabanSnap=await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'jawaban'));
+            html+=`
               <div class="tugas-card">
                 <div class="tugas-card-header">
-                  <div>
-                    <div class="tugas-judul">${k.judul}</div>
-                    <div class="tugas-meta">${svgIcon('help-circle')} ${pertanyaanSnap.size} soal · ${svgIcon('users')} ${jawabanSnap.size} peserta</div>
-                  </div>
+                  <div><div class="tugas-judul">${k.judul}</div><div class="tugas-meta">${svgIcon('help-circle')} ${pertanyaanSnap.size} soal · ${svgIcon('users')} ${jawabanSnap.size} peserta</div></div>
                   <div style="display:flex;gap:6px;align-items:flex-start">
                     <span class="badge badge-blue">${k.durasi||0} menit</span>
                     <button class="btn-action btn-danger" onclick="hapusKuis('${k.id}')">${svgIcon('trash')}</button>
@@ -983,10 +869,9 @@ window._deleteFromDrive = deleteFromCloudinary;
                 </div>
               </div>`;
           }
-          html += `</div>`;
+          html+=`</div>`;
         }
-
-        html += `
+        html+=`
           <div class="add-materi-card">
             <div class="add-materi-title">${svgIcon('plus')} Buat Kuis Baru</div>
             <div>
@@ -994,65 +879,50 @@ window._deleteFromDrive = deleteFromCloudinary;
               <input class="inp" type="number" id="kuisDurasi" placeholder="Durasi (menit), contoh: 30" min="1" max="180">
               <div style="font-size:13px;font-weight:600;color:var(--ink2);margin-bottom:10px">Pertanyaan</div>
               <div id="daftarPertanyaan"></div>
-              <button class="btn-action btn-secondary" style="margin-bottom:12px;width:100%;justify-content:center" onclick="tambahPertanyaan()">
-                ${svgIcon('plus')} Tambah Soal
-              </button>
+              <button class="btn-action btn-secondary" style="margin-bottom:12px;width:100%;justify-content:center" onclick="tambahPertanyaan()">${svgIcon('plus')} Tambah Soal</button>
               <button class="btn-submit" onclick="simpanKuis()">Simpan Kuis</button>
             </div>
           </div>`;
-        tc.innerHTML = html;
-        window._pertanyaan = [];
+        tc.innerHTML=html;
+        window._pertanyaan=[];
         tambahPertanyaan();
       } else {
         if(kuisList.length===0){
-          html += `<div class="empty"><div class="empty-ico">❓</div><h3>Belum ada kuis</h3><p>Dosen belum membuat kuis untuk pertemuan ini.</p></div>`;
-          tc.innerHTML = html; return;
+          html+=`<div class="empty"><div class="empty-ico">❓</div><h3>Belum ada kuis</h3><p>Dosen belum membuat kuis untuk pertemuan ini.</p></div>`;
+          tc.innerHTML=html; return;
         }
-
-        html += `<div class="tugas-list">`;
+        html+=`<div class="tugas-list">`;
         for(const k of kuisList){
-          let sudahKerjakan = false;
-          let hasilData = null;
-          try {
-            const hSnap = await getDoc(doc(db,'pertemuan',_prt.id,'kuis',k.id,'jawaban',user.id));
-            if(hSnap.exists()){ sudahKerjakan=true; hasilData=hSnap.data(); }
-          } catch(e){}
-          const pertSnap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'pertanyaan'));
-          html += `
+          let sudahKerjakan=false; let hasilData=null;
+          try { const hSnap=await getDoc(doc(db,'pertemuan',_prt.id,'kuis',k.id,'jawaban',user.id)); if(hSnap.exists()){ sudahKerjakan=true; hasilData=hSnap.data(); } } catch(e){}
+          const pertSnap=await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'pertanyaan'));
+          html+=`
             <div class="tugas-card">
               <div class="tugas-card-header">
-                <div>
-                  <div class="tugas-judul">${k.judul}</div>
-                  <div class="tugas-meta">${svgIcon('help-circle')} ${pertSnap.size} soal · ⏱️ ${k.durasi||0} menit</div>
-                </div>
-                ${sudahKerjakan
-                  ? `<span class="badge badge-green">✅ Selesai</span>`
-                  : `<span class="badge badge-yellow">⏳ Belum dikerjakan</span>`}
+                <div><div class="tugas-judul">${k.judul}</div><div class="tugas-meta">${svgIcon('help-circle')} ${pertSnap.size} soal · ⏱️ ${k.durasi||0} menit</div></div>
+                ${sudahKerjakan?`<span class="badge badge-green">✅ Selesai</span>`:`<span class="badge badge-yellow">⏳ Belum dikerjakan</span>`}
               </div>
               ${sudahKerjakan
-                ? `<div class="kumpul-info">
-                    <div style="font-size:14px;font-weight:700;color:var(--p)">Nilai: ${hasilData?.nilai||0} / ${hasilData?.total||0}</div>
-                    <div style="font-size:12px;color:var(--muted);margin-top:2px">Benar: ${hasilData?.benar||0} dari ${hasilData?.total||0} soal</div>
-                  </div>`
-                : `<button class="btn-submit" style="margin-top:10px" onclick="mulaiKuis('${k.id}','${k.judul.replace(/'/g,"\\'")}',${k.durasi||0})">Mulai Kerjakan</button>`
+                ?`<div class="kumpul-info"><div style="font-size:14px;font-weight:700;color:var(--p)">Nilai: ${hasilData?.nilai||0} / 100</div><div style="font-size:12px;color:var(--muted);margin-top:2px">Benar: ${hasilData?.benar||0} dari ${hasilData?.total||0} soal</div></div>`
+                :`<button class="btn-submit" style="margin-top:10px" onclick="mulaiKuis('${k.id}','${k.judul.replace(/'/g,"\\'")}',${k.durasi||0})">Mulai Kerjakan</button>`
               }
             </div>`;
         }
-        html += `</div>`;
-        tc.innerHTML = html;
+        html+=`</div>`;
+        tc.innerHTML=html;
       }
     }
 
-    window._pertanyaan = [];
-    window.tambahPertanyaan = ()=>{
-      const idx = window._pertanyaan.length;
+    window._pertanyaan=[];
+    window.tambahPertanyaan=()=>{
+      const idx=window._pertanyaan.length;
       window._pertanyaan.push({soal:'',pilihan:['','','',''],jawaban:0});
-      const container = document.getElementById('daftarPertanyaan');
-      if(!container) return;
-      const div = document.createElement('div');
-      div.className = 'soal-card';
-      div.id = 'soal_'+idx;
-      div.innerHTML = `
+      const container=document.getElementById('daftarPertanyaan');
+      if(!container)return;
+      const div=document.createElement('div');
+      div.className='soal-card';
+      div.id='soal_'+idx;
+      div.innerHTML=`
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <div style="font-size:12px;font-weight:700;color:var(--p)">Soal ${idx+1}</div>
           <button class="btn-action btn-danger" onclick="hapusPertanyaan(${idx})" style="padding:4px 8px">${svgIcon('trash')}</button>
@@ -1069,15 +939,15 @@ window._deleteFromDrive = deleteFromCloudinary;
       container.appendChild(div);
     };
 
-    window.hapusPertanyaan = (idx)=>{ const el=document.getElementById('soal_'+idx); if(el)el.remove(); window._pertanyaan[idx]=null; };
-    window.updateSoal = (idx,field,val)=>{
+    window.hapusPertanyaan=(idx)=>{ const el=document.getElementById('soal_'+idx); if(el)el.remove(); window._pertanyaan[idx]=null; };
+    window.updateSoal=(idx,field,val)=>{
       if(!window._pertanyaan[idx])return;
       if(field==='soal')window._pertanyaan[idx].soal=val;
       else if(field==='jawaban')window._pertanyaan[idx].jawaban=parseInt(val);
       else if(field.startsWith('pilihan_')){const i=parseInt(field.split('_')[1]);window._pertanyaan[idx].pilihan[i]=val;}
     };
 
-    window.simpanKuis = async()=>{
+    window.simpanKuis=async()=>{
       const judul=document.getElementById('kuisJudul').value.trim();
       const durasi=parseInt(document.getElementById('kuisDurasi').value)||30;
       if(!judul)return toast('⚠️ Isi judul kuis dulu');
@@ -1091,11 +961,17 @@ window._deleteFromDrive = deleteFromCloudinary;
 
     window.hapusKuis=async(kuisId)=>{ if(!confirm('Hapus kuis ini?'))return; await deleteDoc(doc(db,'pertemuan',_prt.id,'kuis',kuisId)); toast('🗑️ Kuis dihapus'); await renderKuisTab(); };
 
+    // ── FIX 2: mulaiKuis - simpan soalList di window._currentSoalList, bukan di attribute HTML ──
     window.mulaiKuis=async(kuisId,judulKuis,durasi)=>{
       const pertSnap=await getDocs(collection(db,'pertemuan',_prt.id,'kuis',kuisId,'pertanyaan'));
       const soalList=[];
       pertSnap.forEach(d=>soalList.push({id:d.id,...d.data()}));
       if(soalList.length===0)return toast('⚠️ Kuis ini belum memiliki soal');
+
+      // Simpan di window agar bisa diakses tanpa serialize ke HTML
+      window._currentSoalList = soalList;
+      window._currentKuisId = kuisId;
+
       let jawabanMhs=new Array(soalList.length).fill(null);
       let timeLeft=durasi*60;
       let timerInterval=null;
@@ -1119,8 +995,8 @@ window._deleteFromDrive = deleteFromCloudinary;
             ${durasi>0?`<div style="font-size:16px;font-weight:800;${timerColor}" id="kuisTimer">⏱️ ${menit}:${detik}</div>`:''}
           </div>
           <div id="soalContainer">${soalHtml}</div>
-          <button class="btn-submit" onclick="kumpulKuis('${kuisId}',${JSON.stringify(soalList).replace(/'/g,"\\'")})" style="margin-top:8px">📤 Kumpulkan Jawaban</button>`;
-        openModal('Kuis', content);
+          <button class="btn-submit" onclick="kumpulKuis()" style="margin-top:8px">📤 Kumpulkan Jawaban</button>`;
+        openModal('Kuis',content);
       };
 
       window.pilihJawaban=(soalIdx,pilihanIdx)=>{
@@ -1131,13 +1007,16 @@ window._deleteFromDrive = deleteFromCloudinary;
         });
       };
 
-      window.kumpulKuis=async(kuisId,soalListData)=>{
+      // ── FIX 2: kumpulKuis tidak perlu parameter soalListData, ambil dari window ──
+      window.kumpulKuis=async()=>{
         if(timerInterval)clearInterval(timerInterval);
+        const soalListData=window._currentSoalList;
+        const kId=window._currentKuisId;
         let benar=0;
         soalListData.forEach((s,i)=>{if(jawabanMhs[i]===s.jawaban)benar++;});
         const total=soalListData.length;
         const nilai=Math.round((benar/total)*100);
-        await setDoc(doc(db,'pertemuan',_prt.id,'kuis',kuisId,'jawaban',user.id),{
+        await setDoc(doc(db,'pertemuan',_prt.id,'kuis',kId,'jawaban',user.id),{
           mahasiswaId:user.id,nama:user.nama,nim:user.nim||'-',jawaban:jawabanMhs,benar,total,nilai,waktu:serverTimestamp()
         });
         closeModal();
@@ -1151,7 +1030,7 @@ window._deleteFromDrive = deleteFromCloudinary;
           timeLeft--;
           const el=document.getElementById('kuisTimer');
           if(el){const m=Math.floor(timeLeft/60).toString().padStart(2,'0');const s=(timeLeft%60).toString().padStart(2,'0');el.textContent=`⏱️ ${m}:${s}`;el.style.color=timeLeft<60?'#dc2626':'var(--p)';}
-          if(timeLeft<=0){clearInterval(timerInterval);toast('⏰ Waktu habis! Jawaban dikumpulkan otomatis.');window.kumpulKuis(kuisId,soalList);}
+          if(timeLeft<=0){clearInterval(timerInterval);toast('⏰ Waktu habis! Jawaban dikumpulkan otomatis.');window.kumpulKuis();}
         },1000);
       }
     };
@@ -1176,20 +1055,19 @@ window._deleteFromDrive = deleteFromCloudinary;
             <div style="font-size:20px;font-weight:800;color:${r.nilai>=70?'var(--g)':r.nilai>=50?'var(--a)':'var(--r)'}">${r.nilai}</div>
           </div>`).join('')}</div>`;
       }
-      openModal('Hasil: '+judulKuis, html);
+      openModal('Hasil: '+judulKuis,html);
     };
 
-    // ── ABSENSI TAB ──────────────────────────────────
+    // ── ABSENSI TAB ───────────────────────────────────────────
     async function renderAbsensiTab(){
-      const isDsn = user.role === 'dosen';
-      const tc = document.getElementById('tabContent');
-      if(!tc) return;
+      const isDsn=user.role==='dosen';
+      const tc=document.getElementById('tabContent');
+      if(!tc)return;
       const mhsSnap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
       const mhsList=[];mhsSnap.forEach(d=>mhsList.push({id:d.id,...d.data()}));
       mhsList.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
       const absSnap=await getDocs(query(collection(db,'absensi'),where('pertemuanId','==',_prt.id)));
       const absMap={};absSnap.forEach(d=>{const dat=d.data();absMap[dat.mahasiswaId]={id:d.id,...dat};});
-
       if(isDsn){
         let html=`<div class="card" style="margin-bottom:12px">
           <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px">📋 Rekap Absensi Pertemuan ${_prt.pertemuanKe}</div>
@@ -1270,7 +1148,7 @@ window._deleteFromDrive = deleteFromCloudinary;
       toast('✅ Semua mahasiswa ditandai hadir');await renderAbsensiTab();
     };
 
-    // ── DATA MAHASISWA ─────────────────────────────────
+    // ── DATA MAHASISWA ─────────────────────────────────────────
     async function renderMahasiswa(){
       const snap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
       const list=[];snap.forEach(d=>list.push({id:d.id,...d.data()}));list.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
@@ -1341,27 +1219,36 @@ window._deleteFromDrive = deleteFromCloudinary;
       </div>
       <div class="card">
         <div style="font-size:13px;font-weight:700;margin-bottom:10px">🎓 Nilai</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center">
-          ${[['UTS','nilaiUTS'],['UAS','nilaiUAS'],['Akhir','nilaiAkhir']].map(([lbl,key])=>`<div><div style="font-size:22px;font-weight:800;color:var(--p)">${n[key]||'-'}</div><div style="font-size:11px;color:var(--muted)">${lbl}</div></div>`).join('')}
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center">
+          ${[['UTS','nilaiUTS'],['UAS','nilaiUAS'],['Tugas','nilaiTugas'],['Kuis','nilaiKuis']].map(([lbl,key])=>`<div><div style="font-size:22px;font-weight:800;color:var(--p)">${n[key]??'-'}</div><div style="font-size:11px;color:var(--muted)">${lbl}</div></div>`).join('')}
         </div>
-        <div style="margin-top:12px;display:flex;gap:8px">
+        <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <input class="inp" id="editNilaiUTS_${mhsId}" placeholder="UTS" value="${n.nilaiUTS||''}" style="margin:0">
           <input class="inp" id="editNilaiUAS_${mhsId}" placeholder="UAS" value="${n.nilaiUAS||''}" style="margin:0">
-          <input class="inp" id="editNilaiAkhir_${mhsId}" placeholder="Akhir" value="${n.nilaiAkhir||''}" style="margin:0">
+          <input class="inp" id="editNilaiTugas_${mhsId}" placeholder="Tugas" value="${n.nilaiTugas||''}" style="margin:0">
+          <input class="inp" id="editNilaiKuis_${mhsId}" placeholder="Kuis" value="${n.nilaiKuis||''}" style="margin:0">
         </div>
         <button class="btn-submit" style="margin-top:10px" onclick="simpanNilaiDariDetail('${mhsId}')">Simpan Nilai</button>
       </div>`;
-      openModal('Detail: '+namaMhs, html);
+      openModal('Detail: '+namaMhs,html);
     };
 
     window.simpanNilaiDariDetail=async(mhsId)=>{
       const uts=document.getElementById('editNilaiUTS_'+mhsId)?.value.trim();
       const uas=document.getElementById('editNilaiUAS_'+mhsId)?.value.trim();
-      const akhir=document.getElementById('editNilaiAkhir_'+mhsId)?.value.trim();
-      await setDoc(doc(db,'nilai_akhir',mhsId),{nilaiUTS:uts?parseFloat(uts):null,nilaiUAS:uas?parseFloat(uas):null,nilaiAkhir:akhir?parseFloat(akhir):null,updatedAt:serverTimestamp()},{merge:true});
+      const tugas=document.getElementById('editNilaiTugas_'+mhsId)?.value.trim();
+      const kuis=document.getElementById('editNilaiKuis_'+mhsId)?.value.trim();
+      await setDoc(doc(db,'nilai_akhir',mhsId),{
+        nilaiUTS:uts?parseFloat(uts):null,
+        nilaiUAS:uas?parseFloat(uas):null,
+        nilaiTugas:tugas?parseFloat(tugas):null,
+        nilaiKuis:kuis?parseFloat(kuis):null,
+        updatedAt:serverTimestamp()
+      },{merge:true});
       toast('✅ Nilai disimpan!');
     };
 
+    // ── FIX 3: renderNilaiDsn - tambah kolom Tugas & Kuis ──
     async function renderNilaiDsn(){
       const snap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
       const list=[];snap.forEach(d=>list.push({id:d.id,...d.data()}));list.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
@@ -1370,31 +1257,34 @@ window._deleteFromDrive = deleteFromCloudinary;
       setContent(`
         <div class="section-title" style="margin-bottom:12px">Input Nilai Mahasiswa</div>
         <div class="card">
+          <div style="overflow-x:auto">
           <table class="mhs-table">
-            <thead><tr><th>Nama / NIM</th><th>UTS</th><th>UAS</th><th>Nilai Akhir</th><th>Simpan</th></tr></thead>
+            <thead><tr><th>Nama / NIM</th><th>UTS</th><th>UAS</th><th>Tugas</th><th>Kuis</th><th>Simpan</th></tr></thead>
             <tbody>${list.map(m=>{const n=nilaiMap[m.id]||{};return `<tr>
               <td><div style="font-weight:600">${m.nama}</div><div style="font-size:11px;color:var(--muted)">${m.nim||'-'}</div></td>
               <td><input class="inp" style="margin:0;width:70px;text-align:center" id="n_uts_${m.id}" value="${n.nilaiUTS||''}" placeholder="-"></td>
               <td><input class="inp" style="margin:0;width:70px;text-align:center" id="n_uas_${m.id}" value="${n.nilaiUAS||''}" placeholder="-"></td>
-              <td><input class="inp" style="margin:0;width:70px;text-align:center" id="n_akhir_${m.id}" value="${n.nilaiAkhir||''}" placeholder="-" oninput="hitungAkhir('${m.id}')"></td>
+              <td><input class="inp" style="margin:0;width:70px;text-align:center" id="n_tugas_${m.id}" value="${n.nilaiTugas||''}" placeholder="-"></td>
+              <td><input class="inp" style="margin:0;width:70px;text-align:center" id="n_kuis_${m.id}" value="${n.nilaiKuis||''}" placeholder="-"></td>
               <td><button class="btn-action btn-primary" onclick="simpanNilai('${m.id}')">${svgIcon('check')} Simpan</button></td>
             </tr>`;}).join('')}</tbody>
           </table>
+          </div>
         </div>`);
     }
-
-    window.hitungAkhir=(id)=>{
-      const uts=parseFloat(document.getElementById('n_uts_'+id)?.value)||0;
-      const uas=parseFloat(document.getElementById('n_uas_'+id)?.value)||0;
-      const el=document.getElementById('n_akhir_'+id);
-      if(el&&!el.value)el.value=Math.round(uts*0.4+uas*0.6);
-    };
 
     window.simpanNilai=async(mhsId)=>{
       const uts=document.getElementById('n_uts_'+mhsId)?.value.trim();
       const uas=document.getElementById('n_uas_'+mhsId)?.value.trim();
-      const akhir=document.getElementById('n_akhir_'+mhsId)?.value.trim();
-      await setDoc(doc(db,'nilai_akhir',mhsId),{nilaiUTS:uts?parseFloat(uts):null,nilaiUAS:uas?parseFloat(uas):null,nilaiAkhir:akhir?parseFloat(akhir):null,updatedAt:serverTimestamp()},{merge:true});
+      const tugas=document.getElementById('n_tugas_'+mhsId)?.value.trim();
+      const kuis=document.getElementById('n_kuis_'+mhsId)?.value.trim();
+      await setDoc(doc(db,'nilai_akhir',mhsId),{
+        nilaiUTS:uts?parseFloat(uts):null,
+        nilaiUAS:uas?parseFloat(uas):null,
+        nilaiTugas:tugas?parseFloat(tugas):null,
+        nilaiKuis:kuis?parseFloat(kuis):null,
+        updatedAt:serverTimestamp()
+      },{merge:true});
       toast('✅ Nilai disimpan!');
     };
 
@@ -1421,24 +1311,35 @@ window._deleteFromDrive = deleteFromCloudinary;
         </div>`);
     }
 
+    // ── FIX 3: renderNilaiMhs - tambah Tugas & Kuis, hilangkan Nilai Akhir/Final ──
     async function renderNilaiMhs(){
       const snap=await getDoc(doc(db,'nilai_akhir',user.id));
-      const n=snap.exists()?snap.data():{};const na=n.nilaiAkhir;
-      const grade=na>=85?'A':na>=75?'B':na>=65?'C':na>=55?'D':'E';
-      const gradeColor=na>=75?'var(--g)':na>=55?'var(--a)':'var(--r)';
+      const n=snap.exists()?snap.data():{};
       setContent(`
         <div class="profil-card" style="max-width:480px">
-          <div style="font-size:64px;margin-bottom:8px">${svgIcon('award')}</div>
+          <div style="font-size:48px;margin-bottom:8px">🎓</div>
           <div class="profil-nama">${user.nama}</div>
           <div class="profil-email">NIM: ${user.nim||'-'}</div>
           <div class="profil-badge">${user.prodi||'-'} · Sem ${user.semester||'-'}</div>
-          ${na!=null?`<div style="margin:20px 0;text-align:center"><div style="font-size:72px;font-weight:800;color:${gradeColor};line-height:1">${grade}</div><div style="font-size:14px;color:var(--muted);margin-top:4px">Grade</div></div>`:
-          `<div style="margin:20px 0;font-size:36px">⏳</div>`}
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;margin-top:8px">
-            ${[['UTS',n.nilaiUTS,'#eef2ff','var(--p)'],['UAS',n.nilaiUAS,'#ecfdf5','var(--g)'],['Akhir',n.nilaiAkhir,'var(--pl)','var(--p)']].map(([lbl,val,bg,col])=>`
-              <div style="background:${bg};border-radius:12px;padding:16px;text-align:center"><div style="font-size:28px;font-weight:800;color:${col}">${val??'-'}</div><div style="font-size:12px;color:var(--muted);margin-top:4px">${lbl}</div></div>`).join('')}
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;width:100%;margin-top:20px">
+            <div style="background:#eef2ff;border-radius:12px;padding:16px;text-align:center">
+              <div style="font-size:28px;font-weight:800;color:var(--p)">${n.nilaiUTS??'-'}</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px">UTS</div>
+            </div>
+            <div style="background:#ecfdf5;border-radius:12px;padding:16px;text-align:center">
+              <div style="font-size:28px;font-weight:800;color:var(--g)">${n.nilaiUAS??'-'}</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px">UAS</div>
+            </div>
+            <div style="background:#fffbeb;border-radius:12px;padding:16px;text-align:center">
+              <div style="font-size:28px;font-weight:800;color:var(--a)">${n.nilaiTugas??'-'}</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px">Tugas</div>
+            </div>
+            <div style="background:#f5f3ff;border-radius:12px;padding:16px;text-align:center">
+              <div style="font-size:28px;font-weight:800;color:#7c3aed">${n.nilaiKuis??'-'}</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px">Kuis</div>
+            </div>
           </div>
-          ${na==null?`<div style="margin-top:16px;font-size:13px;color:var(--muted);text-align:center">Nilai belum diinput oleh dosen</div>`:''}
+          ${(n.nilaiUTS==null && n.nilaiUAS==null && n.nilaiTugas==null && n.nilaiKuis==null)?`<div style="margin-top:16px;font-size:13px;color:var(--muted);text-align:center">Nilai belum diinput oleh dosen</div>`:''}
         </div>`);
     }
 
@@ -1507,7 +1408,6 @@ window._deleteFromDrive = deleteFromCloudinary;
       clearTimeout(window._tToast);window._tToast=setTimeout(()=>t.classList.remove('show'),dur);
     };
 
-    
     window.closeModal=()=>{document.getElementById('modalBg').classList.remove('open');document.body.style.overflow='';};
     window.openModal=(title,content)=>{
       document.getElementById('modalBox').innerHTML=`
@@ -1574,6 +1474,11 @@ window._deleteFromDrive = deleteFromCloudinary;
     .nav-ico { width: 20px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .nav-lbl { flex: 1; }
     .nav-logout { margin-top: 8px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 12px; }
+    /* ── FIX 1: Info bar mata kuliah ── */
+    .matkul-info-bar { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; box-shadow: var(--shadow); }
+    .matkul-info-item { display: flex; flex-direction: column; gap: 2px; }
+    .matkul-info-label { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .matkul-info-val { font-size: 13px; font-weight: 700; color: var(--ink); }
     .dash-hero { background: linear-gradient(135deg, var(--p), #7c3aed); border-radius: 16px; padding: 24px; margin-bottom: 16px; color: white; }
     .dash-greet { font-size: 13px; opacity: .8; font-weight: 500; margin-bottom: 4px; }
     .dash-name { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
@@ -1695,10 +1600,12 @@ window._deleteFromDrive = deleteFromCloudinary;
       .materi-actions { flex-direction: column; }
       .toast { bottom: calc(var(--bot) + 16px); }
       .mhs-table th, .mhs-table td { padding: 10px 10px; }
+      .matkul-info-bar { grid-template-columns: 1fr 1fr; }
     }
     @media(max-width: 480px){
       .prt-grid { grid-template-columns: 1fr 1fr; }
       .stats-grid { grid-template-columns: 1fr 1fr; }
+      .matkul-info-bar { grid-template-columns: 1fr 1fr; }
     }
     .ql-toolbar { border-radius: 10px 10px 0 0 !important; border-color: var(--border) !important; background: var(--bg) !important; }
     .ql-container { border-radius: 0 0 10px 10px !important; border-color: var(--border) !important; font-family: 'Inter', system-ui, sans-serif !important; font-size: 14px !important; }
