@@ -28,97 +28,59 @@
     const db = getFirestore(app);
     window.db = db; window.auth = auth;
 
-    // ══════════════════════════════════════════════════
-    // GOOGLE DRIVE UPLOAD (menggantikan Firebase Storage)
-    // ══════════════════════════════════════════════════
-    const DRIVE_API = 'https://script.google.com/macros/s/AKfycbzOF6Sknz9QTg_UWzVcfBCOE39dc49q_2HPezEjsa_2NAkPZurdPLHWJot9B2Vps5TI/exec';
+// ══════════════════════════════════════════════════
+// CLOUDINARY UPLOAD (menggantikan Google Drive)
+// ══════════════════════════════════════════════════
+const CLOUDINARY_CLOUD_NAME = 'dfiuxdomm';
+const CLOUDINARY_UPLOAD_PRESET = 'educampus_unsigned';
 
-    // Konversi File → base64
-    function fileToBase64(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          // Hapus prefix "data:mime;base64,"
-          const base64 = reader.result.split(',')[1];
-          resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-    }
+function uploadToCloudinary(file, subFolder, onProgress) {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    formData.append('folder', subFolder);
 
-    // Upload file ke Google Drive via Apps Script
-    // onProgress(pct) dipanggil selama proses (0-100)
-  // Upload file ke Google Drive via Apps Script
-async function uploadToDrive(file, subFolder, onProgress) {
-  onProgress && onProgress(10);
-  const base64Data = await fileToBase64(file);
-  onProgress && onProgress(40);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`);
 
-  const params = new URLSearchParams();
-  params.append('action', 'upload');
-  params.append('namaFile', file.name);
-  params.append('mimeType', file.type || 'application/octet-stream');
-  params.append('subFolder', subFolder);
-  params.append('fileData', base64Data);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
 
-  onProgress && onProgress(60);
+    xhr.onload = () => {
+      try {
+        const res = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && res.secure_url) {
+          resolve({
+            fileUrl: res.secure_url.replace('/upload/', '/upload/fl_attachment/'),
+            viewUrl: res.secure_url,
+            fileId: res.public_id,
+            namaFile: file.name
+          });
+        } else {
+          reject(new Error(res.error?.message || 'Upload gagal'));
+        }
+      } catch (e) {
+        reject(new Error('Respons tidak valid dari Cloudinary'));
+      }
+    };
 
-  const res = await fetch(DRIVE_API, {
-    method: 'POST',
-    redirect: 'follow',           // ← TAMBAHAN: ikuti redirect GAS
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: params.toString()
+    xhr.onerror = () => reject(new Error('Koneksi gagal saat upload'));
+    xhr.send(formData);
   });
-
-  onProgress && onProgress(90);
-
-  // GAS kadang return HTML error page jika ada masalah server
-  const responseText = await res.text();
-  
-  let json;
-  try {
-    // Bersihkan karakter tak terduga sebelum parse
-    const cleaned = responseText.trim().replace(/^\uFEFF/, ''); // hapus BOM jika ada
-    json = JSON.parse(cleaned);
-  } catch(e) {
-    console.error('Response bukan JSON. Raw response:', responseText.substring(0, 500));
-    throw new Error('Server error: ' + (responseText.substring(0, 100) || 'Response tidak valid'));
-  }
-
-  onProgress && onProgress(100);
-
-  if (!json.ok) {
-    throw new Error(json.error || 'Upload gagal');
-  }
-  
-  return json;
 }
 
-    // Hapus file dari Google Drive via Apps Script
-async function deleteFromDrive(fileId) {
-  if (!fileId) return;
-  try {
-    const params = new URLSearchParams();
-    params.append('action', 'delete');
-    params.append('fileId', fileId);
-    
-    await fetch(DRIVE_API, {
-      method: 'POST',
-      redirect: 'follow',   // ← TAMBAHAN
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params.toString()
-    });
-  } catch(e) { console.warn('Gagal hapus dari Drive:', e); }
+// File di Cloudinary tidak ikut terhapus (tetap ada di cloud, orphan),
+// tapi referensinya di Firestore terhapus sehingga hilang dari tampilan.
+async function deleteFromCloudinary(fileId) {
+  console.log('Referensi file dihapus dari database:', fileId);
 }
 
-    // Expose ke window supaya bisa dipakai di fungsi non-module
-    window._uploadToDrive = uploadToDrive;
-    window._deleteFromDrive = deleteFromDrive;
+window._uploadToDrive = uploadToCloudinary;
+window._deleteFromDrive = deleteFromCloudinary;
 
     let user = null, config = {}, _prt = null;
     let _unsubNotif = null;
@@ -358,11 +320,6 @@ async function deleteFromDrive(fileId) {
     <div class="qa-card" onclick="go('notifikasi')">
       <div class="qa-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('bell')}</div>
       <div>Notifikasi</div>
-    </div>
-    <!-- TAMBAHKAN INI: Tombol Test Drive -->
-    <div class="qa-card" onclick="testDriveConnection()" style="border:2px dashed #f59e0b">
-      <div class="qa-ico" style="background:#fffbeb;color:#f59e0b">${svgIcon('drive')}</div>
-      <div>Test Drive API</div>
     </div>
   </div>
 </div>`);
@@ -1514,29 +1471,6 @@ window.kumpulTugas = async(tugasId) => {
       const t=document.getElementById('toast');t.innerHTML=msg;t.classList.add('show');
       clearTimeout(window._tToast);window._tToast=setTimeout(()=>t.classList.remove('show'),dur);
     };
-    // Fungsi test koneksi Google Drive
-window.testDriveConnection = async () => {
-  toast('🔍 Mengecek koneksi...');
-  try {
-    const params = new URLSearchParams();
-    params.append('action', 'test');
-    
-    const res = await fetch(DRIVE_API, {
-      method: 'POST',
-      redirect: 'follow',   // ← TAMBAHAN
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString()
-    });
-    
-    const text = await res.text();
-    const json = JSON.parse(text.trim());
-    
-    if (json.ok) toast('✅ Drive API OK!');
-    else toast('❌ Error: ' + json.error);
-  } catch(e) {
-    toast('❌ ' + e.message);
-  }
-};
 
     
     window.closeModal=()=>{document.getElementById('modalBg').classList.remove('open');document.body.style.overflow='';};
