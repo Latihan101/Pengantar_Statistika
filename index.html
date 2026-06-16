@@ -134,21 +134,21 @@
           <span class="nav-lbl">Keluar</span>
         </div>`;
       const bnKeys = user.role==='dosen'
-        ? ['dashboard','pertemuan','nilai_dsn','notifikasi']
-        : ['dashboard','pertemuan','absensi_mhs','nilai_mhs'];
+  ? ['dashboard','pertemuan','nilai_dsn','notifikasi']
+  : ['dashboard','pertemuan','absensi_mhs','notifikasi'];
       const bnItems = nav.filter(n=>bnKeys.includes(n.p));
       document.getElementById('bottomNav').innerHTML =
-        `<div class="bn-items">
-          ${bnItems.map(n=>`
-            <div class="bn-item" id="bn-${n.p}" onclick="go('${n.p}')">
-              <div class="bn-ico">${svgIcon(n.i)}</div>
-              <div>${n.l}</div>
-            </div>`).join('')}
-          <div class="bn-item" onclick="doLogout()">
-            <div class="bn-ico">${svgIcon('log-out')}</div>
-            <div>Keluar</div>
-          </div>
-        </div>`;
+  `<div class="bn-items">
+    ${bnItems.map(n=>`
+      <div class="bn-item" id="bn-${n.p}" onclick="go('${n.p}')">
+        <div class="bn-ico">${svgIcon(n.i)}</div>
+        <div>${n.l}</div>
+      </div>`).join('')}
+    <div class="bn-item" id="bn-profil" onclick="go('profil')">
+      <div class="bn-ico">${svgIcon('user')}</div>
+      <div>Profil</div>
+    </div>
+  </div>`;
     }
 
     function svgIcon(name) {
@@ -212,8 +212,21 @@
     };
 
     function setContent(h) { document.getElementById('content').innerHTML = h; }
-    window.openSidebar = ()=>{ document.getElementById('sidebar').classList.add('open'); document.getElementById('sbOverlay').classList.add('show'); document.body.style.overflow='hidden'; };
-    window.closeSidebar = ()=>{ document.getElementById('sidebar').classList.remove('open'); document.getElementById('sbOverlay').classList.remove('show'); document.body.style.overflow=''; };
+    
+    window.openSidebar = ()=>{
+  document.getElementById('sidebar').classList.add('open');
+  const ov = document.getElementById('sbOverlay');
+  ov.style.opacity='1';
+  ov.style.pointerEvents='auto';
+  document.body.style.overflow='hidden';
+};
+window.closeSidebar = ()=>{
+  document.getElementById('sidebar').classList.remove('open');
+  const ov = document.getElementById('sbOverlay');
+  ov.style.opacity='0';
+  ov.style.pointerEvents='none';
+  document.body.style.overflow='';
+};
 
     window.setRole = (r)=>{
       authRole=r;
@@ -1687,7 +1700,7 @@
   <div class="modal" id="modalBox"></div>
 </div>
 <div class="toast" id="toast"></div>
-<div id="sbOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:44" onclick="closeSidebar()"></div>
+<div id="sbOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:44;opacity:0;pointer-events:none;transition:opacity .25s" onclick="closeSidebar()"></div>
 
 <script>
   if(window.innerWidth<=768){
