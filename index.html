@@ -31,7 +31,7 @@
     // ══════════════════════════════════════════════════
     // GOOGLE DRIVE UPLOAD (menggantikan Firebase Storage)
     // ══════════════════════════════════════════════════
-    const DRIVE_API = 'https://script.google.com/macros/s/AKfycbysfJzg8s9WAjHSN7Ubhfc07p-oJkCbs1DbsYFTXkxXSj1Qu7dzZIKb9zjk88rPaVE/exec';
+    const DRIVE_API = 'https://script.google.com/macros/s/AKfycbyDlnUvdOzTBTwq4FwKUMvUyN98HUp82-duYT924zH6P41ekZBtNuS3JvtBwOeLCHPv/exec';
 
     // Konversi File → base64
     function fileToBase64(file) {
@@ -50,38 +50,75 @@
     // Upload file ke Google Drive via Apps Script
     // onProgress(pct) dipanggil selama proses (0-100)
     async function uploadToDrive(file, subFolder, onProgress) {
-      onProgress && onProgress(10);
-      const base64Data = await fileToBase64(file);
-      onProgress && onProgress(40);
+  onProgress && onProgress(10);
+  
+  // Untuk file besar, batasi ukuran (max 10MB untuk Apps Script)
+  const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+  if (file.size > MAX_SIZE) {
+    throw new Error('File terlalu besar. Maksimal 10MB.');
+  }
+  
+  const base64Data = await fileToBase64(file);
+  onProgress && onProgress(40);
 
-      const formData = new FormData();
-      formData.append('action', 'upload');
-      formData.append('namaFile', file.name);
-      formData.append('mimeType', file.type || 'application/octet-stream');
-      formData.append('subFolder', subFolder);
-      formData.append('fileData', base64Data);
+  // Gunakan URLSearchParams
+  const formBody = new URLSearchParams();
+  formBody.append('action', 'upload');
+  formBody.append('namaFile', file.name);
+  formBody.append('mimeType', file.type || 'application/octet-stream');
+  formBody.append('subFolder', subFolder);
+  formBody.append('fileData', base64Data);
 
-      onProgress && onProgress(60);
+  onProgress && onProgress(60);
 
-      const res = await fetch(DRIVE_API, { method: 'POST', body: formData });
-      const json = await res.json();
+  const res = await fetch(DRIVE_API, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+    },
+    body: formBody.toString()
+  });
 
-      onProgress && onProgress(100);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Server error: ${res.status} - ${text}`);
+  }
 
-      if (!json.ok) throw new Error(json.error || 'Upload gagal');
-      return json; // { fileId, fileUrl, viewUrl, namaFile }
-    }
+  const json = await res.json();
+  onProgress && onProgress(100);
+
+  if (!json.ok) {
+    throw new Error(json.error || 'Upload gagal');
+  }
+  
+  console.log('Upload sukses:', {
+    fileId: json.fileId,
+    fileName: json.namaFile,
+    url: json.fileUrl
+  });
+  
+  return json;
+}
 
     // Hapus file dari Google Drive via Apps Script
     async function deleteFromDrive(fileId) {
-      if (!fileId) return;
-      try {
-        const formData = new FormData();
-        formData.append('action', 'delete');
-        formData.append('fileId', fileId);
-        await fetch(DRIVE_API, { method: 'POST', body: formData });
-      } catch(e) { console.warn('Gagal hapus dari Drive:', e); }
-    }
+  if (!fileId) return;
+  try {
+    const formBody = new URLSearchParams();
+    formBody.append('action', 'delete');
+    formBody.append('fileId', fileId);
+    
+    await fetch(DRIVE_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formBody.toString()
+    });
+  } catch(e) {
+    console.warn('Gagal hapus dari Drive:', e);
+  }
+}
 
     // Expose ke window supaya bisa dipakai di fungsi non-module
     window._uploadToDrive = uploadToDrive;
@@ -308,14 +345,31 @@
             </div>
           </div>
           <div class="quick-actions">
-            <div class="section-title">Aksi Cepat</div>
-            <div class="qa-grid">
-              <div class="qa-card" onclick="go('pertemuan')"><div class="qa-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('calendar')}</div><div>Kelola Pertemuan</div></div>
-              <div class="qa-card" onclick="go('mahasiswa')"><div class="qa-ico" style="background:#ecfdf5;color:#059669">${svgIcon('users')}</div><div>Data Mahasiswa</div></div>
-              <div class="qa-card" onclick="go('nilai_dsn')"><div class="qa-ico" style="background:#fffbeb;color:#d97706">${svgIcon('edit')}</div><div>Input Nilai</div></div>
-              <div class="qa-card" onclick="go('notifikasi')"><div class="qa-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('bell')}</div><div>Notifikasi</div></div>
-            </div>
-          </div>`);
+  <div class="section-title">Aksi Cepat</div>
+  <div class="qa-grid">
+    <div class="qa-card" onclick="go('pertemuan')">
+      <div class="qa-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('calendar')}</div>
+      <div>Kelola Pertemuan</div>
+    </div>
+    <div class="qa-card" onclick="go('mahasiswa')">
+      <div class="qa-ico" style="background:#ecfdf5;color:#059669">${svgIcon('users')}</div>
+      <div>Data Mahasiswa</div>
+    </div>
+    <div class="qa-card" onclick="go('nilai_dsn')">
+      <div class="qa-ico" style="background:#fffbeb;color:#d97706">${svgIcon('edit')}</div>
+      <div>Input Nilai</div>
+    </div>
+    <div class="qa-card" onclick="go('notifikasi')">
+      <div class="qa-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('bell')}</div>
+      <div>Notifikasi</div>
+    </div>
+    <!-- TAMBAHKAN INI: Tombol Test Drive -->
+    <div class="qa-card" onclick="testDriveConnection()" style="border:2px dashed #f59e0b">
+      <div class="qa-ico" style="background:#fffbeb;color:#f59e0b">${svgIcon('drive')}</div>
+      <div>Test Drive API</div>
+    </div>
+  </div>
+</div>`);
       } else {
         const [absSnap, nilaiSnap] = await Promise.all([
           getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id))),
@@ -1448,6 +1502,45 @@
       const t=document.getElementById('toast');t.innerHTML=msg;t.classList.add('show');
       clearTimeout(window._tToast);window._tToast=setTimeout(()=>t.classList.remove('show'),dur);
     };
+    // Fungsi test koneksi Google Drive
+window.testDriveConnection = async () => {
+  toast('🔍 Mengecek koneksi Google Drive...');
+  
+  try {
+    // Test 1: Cek apakah API merespon
+    console.log('=== TEST DRIVE API ===');
+    console.log('URL:', DRIVE_API);
+    
+    const params = new URLSearchParams();
+    params.append('action', 'test');
+    
+    console.log('Mengirim request test...');
+    const res = await fetch(DRIVE_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString()
+    });
+    
+    console.log('Response status:', res.status);
+    
+    const json = await res.json();
+    console.log('Response body:', json);
+    
+    if (json.ok) {
+      toast('✅ Google Drive API terhubung! Folder ID: ' + (json.folderId || 'OK'));
+      console.log('✅ TEST BERHASIL');
+    } else {
+      toast('❌ Error: ' + (json.error || 'Unknown'));
+      console.error('❌ TEST GAGAL:', json.error);
+    }
+    
+  } catch(e) {
+    console.error('❌ GAGAL KONEK:', e.message);
+    toast('❌ Gagal: ' + e.message);
+  }
+};
     window.closeModal=()=>{document.getElementById('modalBg').classList.remove('open');document.body.style.overflow='';};
     window.openModal=(title,content)=>{
       document.getElementById('modalBox').innerHTML=`
