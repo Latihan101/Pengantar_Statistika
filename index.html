@@ -7,6 +7,7 @@
   <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
   <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -1265,6 +1266,156 @@ window.closeSidebar = ()=>{
       toast('✅ Nilai disimpan!');
     };
 
+    // --Download nilai rekap
+    window.downloadRekapExcel = async () => {
+  toast('⏳ Menyiapkan file Excel...');
+  try {
+    const [mhsSnap, prtSnap, absSnap, nilaiSnap] = await Promise.all([
+      getDocs(query(collection(db,'users'),where('role','==','mahasiswa'))),
+      getDocs(collection(db,'pertemuan')),
+      getDocs(collection(db,'absensi')),
+      getDocs(collection(db,'nilai_akhir'))
+    ]);
+
+    const mhsList = [];
+    mhsSnap.forEach(d => mhsList.push({id:d.id,...d.data()}));
+    mhsList.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
+
+    const totalPrt = prtSnap.size;
+
+    const absMap = {};
+    absSnap.forEach(d => {
+      const dat = d.data();
+      if(!absMap[dat.mahasiswaId]) absMap[dat.mahasiswaId] = [];
+      absMap[dat.mahasiswaId].push(dat.status);
+    });
+
+    const nilaiMap = {};
+    nilaiSnap.forEach(d => nilaiMap[d.id] = d.data());
+
+    // ── Sheet 1: Rekap Lengkap
+    const sheet1Data = [
+      ['REKAP KELAS'],
+      [`Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'})}`],
+      [`Total Pertemuan: ${totalPrt}`],
+      [],
+      ['No','NIM','Nama','Program Studi','Semester',
+       'Hadir','Tidak Hadir','Izin','Total Diabsen','% Kehadiran',
+       'Nilai UTS','Nilai UAS','Nilai Tugas','Nilai Kuis','Rata-rata','Grade']
+    ];
+
+    mhsList.forEach((m,i) => {
+      const abs = absMap[m.id] || [];
+      const hadir = abs.filter(s=>s==='hadir').length;
+      const tidak = abs.filter(s=>s==='tidak').length;
+      const izin  = abs.filter(s=>s==='izin').length;
+      const total = abs.length;
+      const pct   = total > 0 ? Math.round(hadir/total*100) : 0;
+      const n     = nilaiMap[m.id] || {};
+      const uts   = n.nilaiUTS   ?? null;
+      const uas   = n.nilaiUAS   ?? null;
+      const tugas = n.nilaiTugas ?? null;
+      const kuis  = n.nilaiKuis  ?? null;
+      const adaNilai = [uts,uas,tugas,kuis].filter(x=>x!==null);
+      const rata  = adaNilai.length > 0
+        ? Math.round(adaNilai.reduce((s,x)=>s+x,0)/adaNilai.length)
+        : null;
+      const grade = rata===null?'-':rata>=80?'A':rata>=70?'B':rata>=60?'C':rata>=50?'D':'E';
+
+      sheet1Data.push([
+        i+1,
+        m.nim||'-',
+        m.nama||'-',
+        m.prodi||'-',
+        m.semester||'-',
+        hadir,
+        tidak,
+        izin,
+        total,
+        pct+'%',
+        uts??'-',
+        uas??'-',
+        tugas??'-',
+        kuis??'-',
+        rata??'-',
+        grade
+      ]);
+    });
+
+    // ── Sheet 2: Rekap Nilai Saja
+    const sheet2Data = [
+      ['REKAP NILAI'],
+      [`Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'})}`],
+      [],
+      ['No','NIM','Nama','UTS','UAS','Tugas','Kuis','Rata-rata','Grade']
+    ];
+    mhsList.forEach((m,i) => {
+      const n     = nilaiMap[m.id] || {};
+      const uts   = n.nilaiUTS   ?? null;
+      const uas   = n.nilaiUAS   ?? null;
+      const tugas = n.nilaiTugas ?? null;
+      const kuis  = n.nilaiKuis  ?? null;
+      const adaNilai = [uts,uas,tugas,kuis].filter(x=>x!==null);
+      const rata  = adaNilai.length > 0
+        ? Math.round(adaNilai.reduce((s,x)=>s+x,0)/adaNilai.length)
+        : null;
+      const grade = rata===null?'-':rata>=80?'A':rata>=70?'B':rata>=60?'C':rata>=50?'D':'E';
+      sheet2Data.push([i+1, m.nim||'-', m.nama||'-', uts??'-', uas??'-', tugas??'-', kuis??'-', rata??'-', grade]);
+    });
+
+    // ── Sheet 3: Rekap Kehadiran Saja
+    const sheet3Data = [
+      ['REKAP KEHADIRAN'],
+      [`Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'})}`],
+      [`Total Pertemuan: ${totalPrt}`],
+      [],
+      ['No','NIM','Nama','Hadir','Tidak Hadir','Izin','Total Diabsen','% Kehadiran','Status']
+    ];
+    mhsList.forEach((m,i) => {
+      const abs   = absMap[m.id] || [];
+      const hadir = abs.filter(s=>s==='hadir').length;
+      const tidak = abs.filter(s=>s==='tidak').length;
+      const izin  = abs.filter(s=>s==='izin').length;
+      const total = abs.length;
+      const pct   = total > 0 ? Math.round(hadir/total*100) : 0;
+      const status = pct>=75?'Memenuhi Syarat':'Tidak Memenuhi Syarat';
+      sheet3Data.push([i+1, m.nim||'-', m.nama||'-', hadir, tidak, izin, total, pct+'%', status]);
+    });
+
+    // ── Buat workbook
+    const wb = XLSX.utils.book_new();
+
+    const ws1 = XLSX.utils.aoa_to_sheet(sheet1Data);
+    const ws2 = XLSX.utils.aoa_to_sheet(sheet2Data);
+    const ws3 = XLSX.utils.aoa_to_sheet(sheet3Data);
+
+    // Set lebar kolom otomatis
+    ws1['!cols'] = [
+      {wch:4},{wch:14},{wch:24},{wch:20},{wch:8},
+      {wch:6},{wch:10},{wch:6},{wch:12},{wch:10},
+      {wch:8},{wch:8},{wch:10},{wch:8},{wch:10},{wch:6}
+    ];
+    ws2['!cols'] = [{wch:4},{wch:14},{wch:24},{wch:8},{wch:8},{wch:10},{wch:8},{wch:10},{wch:6}];
+    ws3['!cols'] = [{wch:4},{wch:14},{wch:24},{wch:6},{wch:10},{wch:6},{wch:12},{wch:10},{wch:22}];
+
+    // Merge judul di baris pertama
+    ws1['!merges'] = [{s:{r:0,c:0},e:{r:0,c:15}}];
+    ws2['!merges'] = [{s:{r:0,c:0},e:{r:0,c:8}}];
+    ws3['!merges'] = [{s:{r:0,c:0},e:{r:0,c:8}}];
+
+    XLSX.utils.book_append_sheet(wb, ws1, 'Rekap Lengkap');
+    XLSX.utils.book_append_sheet(wb, ws2, 'Nilai');
+    XLSX.utils.book_append_sheet(wb, ws3, 'Kehadiran');
+
+    const namaMatkul = (config.NAMA_MATKUL||'Kelas').replace(/[^a-zA-Z0-9]/g,'_');
+    const tgl = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb, `Rekap_${namaMatkul}_${tgl}.xlsx`);
+    toast('✅ File Excel berhasil diunduh!');
+  } catch(e) {
+    toast('❌ Gagal export: '+e.message);
+  }
+};
+    
     // -- REKAP NILAI
     async function renderRekapDsn(){
   setContent('<div class="loading"><div class="spin"></div><span>Memuat rekap...</span></div>');
@@ -1351,6 +1502,14 @@ window.closeSidebar = ()=>{
     });
 
     let html = '';
+
+    // ── Tombol download
+html += `
+  <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+    <button class="btn-submit" style="width:auto;padding:10px 20px;gap:8px" onclick="downloadRekapExcel()">
+      ${svgIcon('download')} Download Excel
+    </button>
+  </div>`;
 
     // ── Kartu ringkasan atas
     html += `
