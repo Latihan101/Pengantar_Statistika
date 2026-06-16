@@ -144,6 +144,7 @@
       absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya',
     };
 
+    // ── PATCH: routing dibungkus try/catch agar spinner tidak macet ─
     window.go = function(page, params={}) {
       document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('on'));
       document.querySelectorAll('.bn-item').forEach(n=>n.classList.remove('on'));
@@ -157,7 +158,12 @@
         nilai_dsn:renderNilaiDsn, notifikasi:renderNotifikasi, profil:renderProfil,
         absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs
       };
-      if (map[page]) map[page](params);
+      if (map[page]) {
+        Promise.resolve(map[page](params)).catch(e=>{
+          console.error('Gagal render halaman '+page+':', e);
+          setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat halaman</h3><p>${e.message||e}</p></div>`);
+        });
+      }
       else setContent('<div class="empty"><div class="empty-ico">🚧</div><h3>Segera Hadir</h3><p>Fitur ini sedang dalam pengembangan.</p></div>');
       document.getElementById('content').scrollTop = 0;
     };
@@ -361,7 +367,7 @@
       }
     };
 
-    // ── MATERI TAB (FIXED) ───────────────────────────────────
+    // ── MATERI TAB ───────────────────────────────────
     async function renderMateriTab(){
       const isDsn = user.role === 'dosen';
       const tc = document.getElementById('tabContent');
@@ -588,20 +594,97 @@
     // ── HALAMAN LAIN ─────────────────────────────────────────
     async function renderMahasiswa(){ setContent('<div class="empty"><div class="empty-ico">👥</div><h3>Data Mahasiswa</h3><p>Fitur segera hadir.</p></div>'); }
     async function renderNilaiDsn(){ setContent('<div class="empty"><div class="empty-ico">✏️</div><h3>Input Nilai</h3><p>Fitur segera hadir.</p></div>'); }
-    async function renderNotifikasi(){ setContent('<div class="empty"><div class="empty-ico">🔔</div><h3>Notifikasi</h3><p>Tidak ada notifikasi.</p></div>'); }
-    async function renderProfil(){
-      setContent(`
-        <div class="profil-card">
-          <div class="profil-av">${(user.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}</div>
-          <div class="profil-nama">${user.nama}</div>
-          <div class="profil-email">${user.email}</div>
-          <div class="profil-badge">${user.role==='dosen'?'👨‍🏫 Dosen':'🎓 Mahasiswa'}</div>
-          ${user.nim?`<div class="profil-detail">NIM: ${user.nim}</div>`:''}
-          ${user.prodi?`<div class="profil-detail">Prodi: ${user.prodi}</div>`:''}
-          ${user.semester?`<div class="profil-detail">Semester: ${user.semester}</div>`:''}
-          <button class="btn-submit" style="margin-top:20px;max-width:200px" onclick="doLogout()">Keluar</button>
-        </div>`);
+
+    // ================= NOTIFIKASI (PATCH: digabung jadi satu fungsi, duplikat dihapus) =================
+    async function renderNotifikasi(){
+      const isDsn = user.role === 'dosen';
+      let html = `<div class="section-title">Notifikasi</div>`;
+
+      if(isDsn){
+        html += `
+          <div class="card">
+            <input id="notifJudul" class="inp" placeholder="Judul notifikasi">
+            <textarea id="notifIsi" class="inp" placeholder="Isi notifikasi"></textarea>
+            <button class="btn-submit" onclick="kirimNotif()">Kirim</button>
+          </div>
+        `;
+      }
+
+      html += `<div id="listNotif"></div>`;
+      setContent(html);
+      await loadNotif();
     }
+
+    window.kirimNotif = async () => {
+      const judul = document.getElementById('notifJudul').value.trim();
+      const isi = document.getElementById('notifIsi').value.trim();
+
+      if(!judul || !isi){
+        alert('Isi semua field!');
+        return;
+      }
+
+      await addDoc(collection(db, 'notifikasi'), {
+        title: judul,
+        pesan: isi,
+        createdAt: serverTimestamp()
+      });
+
+      document.getElementById('notifJudul').value='';
+      document.getElementById('notifIsi').value='';
+      toast('✅ Berhasil kirim notifikasi!');
+      await loadNotif();
+    };
+
+    async function loadNotif(){
+      const list = [];
+      try {
+        const snap = await getDocs(query(
+          collection(db,'notifikasi'),
+          orderBy('createdAt','desc')
+        ));
+        snap.forEach(d => list.push(d.data()));
+      } catch(e) {
+        console.error('Gagal memuat notifikasi:', e);
+      }
+
+      const el = document.getElementById('listNotif');
+      if(!el) return;
+
+      if(list.length===0){
+        el.innerHTML = `<div class="empty"><div class="empty-ico">🔔</div><h3>Belum ada notifikasi</h3><p>Tidak ada notifikasi saat ini.</p></div>`;
+        return;
+      }
+
+      el.innerHTML = list.map(n => `
+        <div class="card">
+          <b>${n.title||''}</b>
+          <div style="font-size:13px;color:gray">${n.pesan||''}</div>
+        </div>
+      `).join('');
+    }
+
+    // ── PATCH: renderProfil dibungkus try/catch supaya tidak macet jika field user kosong ──
+    async function renderProfil(){
+      try {
+        const inisial = (user?.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+        setContent(`
+          <div class="profil-card">
+            <div class="profil-av">${inisial}</div>
+            <div class="profil-nama">${user?.nama||'-'}</div>
+            <div class="profil-email">${user?.email||'-'}</div>
+            <div class="profil-badge">${user?.role==='dosen'?'👨‍🏫 Dosen':'🎓 Mahasiswa'}</div>
+            ${user?.nim?`<div class="profil-detail">NIM: ${user.nim}</div>`:''}
+            ${user?.prodi?`<div class="profil-detail">Prodi: ${user.prodi}</div>`:''}
+            ${user?.semester?`<div class="profil-detail">Semester: ${user.semester}</div>`:''}
+            <button class="btn-submit" style="margin-top:20px;max-width:200px" onclick="doLogout()">Keluar</button>
+          </div>`);
+      } catch(e) {
+        console.error('Gagal render profil:', e);
+        setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat profil</h3><p>${e.message}</p></div>`);
+      }
+    }
+
     async function renderAbsensiMhs(){ setContent('<div class="empty"><div class="empty-ico">✋</div><h3>Absensi Saya</h3><p>Fitur segera hadir.</p></div>'); }
     async function renderNilaiMhs(){ setContent('<div class="empty"><div class="empty-ico">📊</div><h3>Nilai Saya</h3><p>Fitur segera hadir.</p></div>'); }
 
@@ -781,6 +864,10 @@
     .profil-badge { display: inline-block; background: var(--pl); color: var(--p); font-size: 12px; font-weight: 700; padding: 5px 14px; border-radius: 20px; margin-bottom: 12px; }
     .profil-detail { font-size: 13px; color: var(--ink2); padding: 6px 0; border-bottom: 1px solid var(--border); }
 
+    /* ── NOTIF CARD (PATCH: ditambahkan, sebelumnya belum ada style .card) ── */
+    .card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; box-shadow: var(--shadow); }
+    .card textarea.inp { resize: vertical; min-height: 80px; }
+
     /* ── MODAL ── */
     .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: flex-end; justify-content: center; z-index: 200; backdrop-filter: blur(4px); }
     .modal-bg.open { display: flex; }
@@ -908,9 +995,6 @@
   if(window.innerWidth<=768){
     document.getElementById('menuBtn').style.display='block';
   }
-  // make sbOverlay show/hide work
-  const _origOpen = window.openSidebar;
-  const _origClose = window.closeSidebar;
 </script>
 </body>
 </html>
