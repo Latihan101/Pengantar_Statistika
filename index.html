@@ -133,6 +133,12 @@
         'arrow-left': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`,
         'menu': `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`,
         'plus': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+        'clock': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+        'check': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`,
+        'x': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+        'search': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+        'award': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>`,
+        'help-circle': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
       };
       return icons[name] || '';
     }
@@ -144,7 +150,6 @@
       absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya',
     };
 
-    // ── PATCH: routing dibungkus try/catch agar spinner tidak macet ─
     window.go = function(page, params={}) {
       document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('on'));
       document.querySelectorAll('.bn-item').forEach(n=>n.classList.remove('on'));
@@ -360,11 +365,9 @@
       const tc=document.getElementById('tabContent');
       if(!tc)return;
       if(tab==='materi') await renderMateriTab();
-      else {
-        const emp={tugas:{i:'📝',t:'Tugas'},kuis:{i:'❓',t:'Kuis'},absensi:{i:'✋',t:'Absensi'}};
-        const e=emp[tab]||{i:'🚧',t:tab};
-        tc.innerHTML=`<div class="empty"><div class="empty-ico">${e.i}</div><h3>${e.t}</h3><p>Fitur ini segera hadir.</p></div>`;
-      }
+      else if(tab==='tugas') await renderTugasTab();
+      else if(tab==='kuis') await renderKuisTab();
+      else if(tab==='absensi') await renderAbsensiTab();
     };
 
     // ── MATERI TAB ───────────────────────────────────
@@ -384,7 +387,6 @@
       }
 
       let html = `<div class="materi-list" id="materi-list">`;
-
       if(items.length === 0){
         html += `<div class="empty"><div class="empty-ico">📄</div><h3>Belum ada materi</h3><p>${isDsn?'Tambahkan materi di bawah.':'Dosen belum menambahkan materi.'}</p></div>`;
       } else {
@@ -431,7 +433,6 @@
               <div class="tipe-tab on" id="tipeFile" onclick="switchTipe('file')">${svgIcon('upload')} Upload File</div>
               <div class="tipe-tab" id="tipeTeks" onclick="switchTipe('teks')">${svgIcon('file-text')} Konten Teks</div>
             </div>
-
             <div id="formFile">
               <input class="inp" id="judulFile" placeholder="Judul materi...">
               <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
@@ -447,7 +448,6 @@
               </div>
               <button class="btn-submit" id="submitFileBtn" onclick="uploadMateriFile()">Upload & Simpan</button>
             </div>
-
             <div id="formTeks" style="display:none">
               <input class="inp" id="judulTeks" placeholder="Judul materi...">
               <div id="quillEditor" style="height:280px"></div>
@@ -509,14 +509,11 @@
       const file=fileInput.files[0];
       if(!judul) return toast('⚠️ Isi judul materi dulu');
       if(!file) return toast('⚠️ Pilih file dulu');
-
       const path=`materi/${_prt.id}/${Date.now()}_${file.name}`;
       const storageRef=ref(storage,path);
       const uploadTask=uploadBytesResumable(storageRef,file);
-
       document.getElementById('uploadProgress').style.display='block';
       document.getElementById('submitFileBtn').disabled=true;
-
       uploadTask.on('state_changed',
         (snapshot)=>{
           const pct=Math.round(snapshot.bytesTransferred/snapshot.totalBytes*100);
@@ -591,26 +588,992 @@
       await renderMateriTab();
     };
 
-    // ── HALAMAN LAIN ─────────────────────────────────────────
-    async function renderMahasiswa(){ setContent('<div class="empty"><div class="empty-ico">👥</div><h3>Data Mahasiswa</h3><p>Fitur segera hadir.</p></div>'); }
-    async function renderNilaiDsn(){ setContent('<div class="empty"><div class="empty-ico">✏️</div><h3>Input Nilai</h3><p>Fitur segera hadir.</p></div>'); }
-
-    // ================= NOTIFIKASI (PATCH: digabung jadi satu fungsi, duplikat dihapus) =================
-    async function renderNotifikasi(){
+    // ══════════════════════════════════════════════════
+    // ── TUGAS TAB ────────────────────────────────────
+    // ══════════════════════════════════════════════════
+    async function renderTugasTab(){
       const isDsn = user.role === 'dosen';
-      let html = `<div class="section-title">Notifikasi</div>`;
+      const tc = document.getElementById('tabContent');
+      if(!tc) return;
 
-      if(isDsn){
-        html += `
-          <div class="card">
-            <input id="notifJudul" class="inp" placeholder="Judul notifikasi">
-            <textarea id="notifIsi" class="inp" placeholder="Isi notifikasi"></textarea>
-            <button class="btn-submit" onclick="kirimNotif()">Kirim</button>
-          </div>
-        `;
+      let tugasList = [];
+      try {
+        const snap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas'));
+        snap.forEach(d => tugasList.push({id:d.id,...d.data()}));
+        tugasList.sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));
+      } catch(e) {
+        tc.innerHTML=`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat tugas</h3><p>${e.message}</p></div>`;
+        return;
       }
 
-      html += `<div id="listNotif"></div>`;
+      let html = '';
+
+      if(isDsn){
+        // Dosen: lihat semua tugas + form tambah
+        if(tugasList.length === 0){
+          html += `<div class="empty" style="padding:40px 20px"><div class="empty-ico">📝</div><h3>Belum ada tugas</h3><p>Tambahkan tugas pertama untuk pertemuan ini.</p></div>`;
+        } else {
+          html += `<div class="tugas-list">`;
+          for(const t of tugasList){
+            // hitung jumlah pengumpulan
+            let jumlahKumpul = 0;
+            try {
+              const kumpulSnap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas',t.id,'pengumpulan'));
+              jumlahKumpul = kumpulSnap.size;
+            } catch(e){}
+            const batas = t.batasWaktu ? new Date(t.batasWaktu).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Tidak ada batas';
+            html += `
+              <div class="tugas-card">
+                <div class="tugas-card-header">
+                  <div>
+                    <div class="tugas-judul">${t.judul}</div>
+                    <div class="tugas-meta">${svgIcon('clock')} Batas: ${batas}</div>
+                  </div>
+                  <div style="display:flex;gap:6px;align-items:flex-start">
+                    <span class="badge badge-blue">${jumlahKumpul} Terkumpul</span>
+                    <button class="btn-action btn-danger" onclick="hapusTugas('${t.id}')">${svgIcon('trash')}</button>
+                  </div>
+                </div>
+                <div class="tugas-deskripsi">${t.deskripsi||''}</div>
+                <div style="margin-top:10px">
+                  <button class="btn-action btn-secondary" onclick="lihatPengumpulan('${t.id}','${t.judul.replace(/'/g,"\\'")}')">📋 Lihat Pengumpulan (${jumlahKumpul})</button>
+                </div>
+              </div>`;
+          }
+          html += `</div>`;
+        }
+
+        // Form tambah tugas (dosen)
+        html += `
+          <div class="add-materi-card">
+            <div class="add-materi-title">${svgIcon('plus')} Buat Tugas Baru</div>
+            <div>
+              <input class="inp" id="tugasJudul" placeholder="Judul tugas...">
+              <textarea class="inp" id="tugasDeskripsi" placeholder="Deskripsi / instruksi tugas..." style="resize:vertical;min-height:100px"></textarea>
+              <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Batas Waktu Pengumpulan</label>
+              <input class="inp" type="datetime-local" id="tugasBatas">
+              <button class="btn-submit" onclick="simpanTugas()">Buat Tugas</button>
+            </div>
+          </div>`;
+      } else {
+        // Mahasiswa: lihat tugas + form pengumpulan
+        if(tugasList.length === 0){
+          html += `<div class="empty"><div class="empty-ico">📝</div><h3>Belum ada tugas</h3><p>Dosen belum memberikan tugas untuk pertemuan ini.</p></div>`;
+        } else {
+          html += `<div class="tugas-list">`;
+          for(const t of tugasList){
+            // cek apakah sudah kumpul
+            let sudahKumpul = false;
+            let kumpulData = null;
+            try {
+              const kSnap = await getDoc(doc(db,'pertemuan',_prt.id,'tugas',t.id,'pengumpulan',user.id));
+              if(kSnap.exists()){ sudahKumpul = true; kumpulData = kSnap.data(); }
+            } catch(e){}
+            const batas = t.batasWaktu ? new Date(t.batasWaktu) : null;
+            const terlambat = batas && new Date() > batas;
+            const batasStr = batas ? batas.toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Tidak ada batas';
+            html += `
+              <div class="tugas-card">
+                <div class="tugas-card-header">
+                  <div>
+                    <div class="tugas-judul">${t.judul}</div>
+                    <div class="tugas-meta">${svgIcon('clock')} Batas: ${batasStr}</div>
+                  </div>
+                  ${sudahKumpul
+                    ? `<span class="badge badge-green">✅ Terkumpul</span>`
+                    : terlambat
+                      ? `<span class="badge badge-red">⏰ Terlambat</span>`
+                      : `<span class="badge badge-yellow">⏳ Belum Kumpul</span>`}
+                </div>
+                <div class="tugas-deskripsi">${t.deskripsi||''}</div>
+                ${sudahKumpul
+                  ? `<div class="kumpul-info">
+                      <div style="font-size:12px;color:var(--g);font-weight:600">✅ Tugas sudah dikumpulkan</div>
+                      ${kumpulData?.namaFile?`<div style="font-size:12px;color:var(--muted);margin-top:4px">📎 ${kumpulData.namaFile}</div>`:''}
+                      ${kumpulData?.catatan?`<div style="font-size:12px;color:var(--ink2);margin-top:4px">"${kumpulData.catatan}"</div>`:''}
+                    </div>`
+                  : `<div class="kumpul-form" id="kumpulForm_${t.id}">
+                      <textarea class="inp" id="kumpulCatatan_${t.id}" placeholder="Catatan / komentar (opsional)..." style="resize:vertical;min-height:60px;margin-top:10px"></textarea>
+                      <div style="margin-bottom:10px">
+                        <label class="upload-area" style="padding:16px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center" for="kumpulFile_${t.id}">
+                          ${svgIcon('upload')}<span id="kumpulFileLabel_${t.id}">Lampirkan file tugas (opsional)</span>
+                          <input type="file" id="kumpulFile_${t.id}" style="display:none" onchange="previewKumpulFile('${t.id}',this)">
+                        </label>
+                      </div>
+                      <div id="kumpulProgress_${t.id}" style="display:none" class="upload-progress">
+                        <div class="progress-bar"><div class="progress-fill" id="kumpulProgressFill_${t.id}"></div></div>
+                        <div class="progress-txt" id="kumpulProgressTxt_${t.id}">Mengupload...</div>
+                      </div>
+                      <button class="btn-submit" ${terlambat?'style="background:#d97706"':''} onclick="kumpulTugas('${t.id}')">
+                        ${terlambat?'⏰ Kumpul (Terlambat)':'📤 Kumpulkan Tugas'}
+                      </button>
+                    </div>`
+                }
+              </div>`;
+          }
+          html += `</div>`;
+        }
+      }
+
+      tc.innerHTML = html;
+    }
+
+    window.simpanTugas = async()=>{
+      const judul = document.getElementById('tugasJudul').value.trim();
+      const deskripsi = document.getElementById('tugasDeskripsi').value.trim();
+      const batas = document.getElementById('tugasBatas').value;
+      if(!judul) return toast('⚠️ Isi judul tugas dulu');
+      await addDoc(collection(db,'pertemuan',_prt.id,'tugas'),{
+        judul, deskripsi, batasWaktu: batas||null, createdAt: serverTimestamp()
+      });
+      toast('✅ Tugas berhasil dibuat!');
+      await renderTugasTab();
+    };
+
+    window.hapusTugas = async(tugasId)=>{
+      if(!confirm('Hapus tugas ini?')) return;
+      await deleteDoc(doc(db,'pertemuan',_prt.id,'tugas',tugasId));
+      toast('🗑️ Tugas dihapus');
+      await renderTugasTab();
+    };
+
+    window.previewKumpulFile = (tugasId, input)=>{
+      const file = input.files[0]; if(!file) return;
+      const label = document.getElementById('kumpulFileLabel_'+tugasId);
+      if(label) label.textContent = '📎 ' + file.name;
+    };
+
+    window.kumpulTugas = async(tugasId)=>{
+      const catatan = document.getElementById('kumpulCatatan_'+tugasId)?.value.trim()||'';
+      const fileInput = document.getElementById('kumpulFile_'+tugasId);
+      const file = fileInput?.files[0];
+
+      const doSave = async(fileUrl, namaFile, filePath)=>{
+        await setDoc(doc(db,'pertemuan',_prt.id,'tugas',tugasId,'pengumpulan',user.id),{
+          mahasiswaId: user.id, nama: user.nama, nim: user.nim||'-',
+          catatan, fileUrl:fileUrl||null, namaFile:namaFile||null, filePath:filePath||null,
+          waktuKumpul: serverTimestamp()
+        });
+        toast('✅ Tugas berhasil dikumpulkan!');
+        await renderTugasTab();
+      };
+
+      if(file){
+        const path = `tugas/${_prt.id}/${tugasId}/${user.id}_${file.name}`;
+        const storageRef = ref(storage, path);
+        const task = uploadBytesResumable(storageRef, file);
+        const prog = document.getElementById('kumpulProgress_'+tugasId);
+        const fill = document.getElementById('kumpulProgressFill_'+tugasId);
+        const txt = document.getElementById('kumpulProgressTxt_'+tugasId);
+        if(prog) prog.style.display='block';
+        task.on('state_changed',
+          s=>{ const p=Math.round(s.bytesTransferred/s.totalBytes*100); if(fill)fill.style.width=p+'%'; if(txt)txt.textContent='Mengupload '+p+'%...'; },
+          e=>{ toast('❌ Upload gagal: '+e.message); if(prog)prog.style.display='none'; },
+          async()=>{ const url=await getDownloadURL(task.snapshot.ref); await doSave(url,file.name,path); }
+        );
+      } else {
+        await doSave(null,null,null);
+      }
+    };
+
+    window.lihatPengumpulan = async(tugasId, judulTugas)=>{
+      const snap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas',tugasId,'pengumpulan'));
+      const list = [];
+      snap.forEach(d => list.push(d.data()));
+      let html = '';
+      if(list.length===0){
+        html = `<div class="empty" style="padding:30px"><div class="empty-ico">📭</div><h3>Belum ada yang mengumpulkan</h3></div>`;
+      } else {
+        html = `<div style="font-size:13px;color:var(--muted);margin-bottom:12px">${list.length} mahasiswa telah mengumpulkan</div>`;
+        html += list.map(k=>{
+          const waktu = k.waktuKumpul?.toDate ? k.waktuKumpul.toDate().toLocaleDateString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '-';
+          return `<div class="kumpul-item">
+            <div style="font-weight:600;font-size:14px">${k.nama}</div>
+            <div style="font-size:12px;color:var(--muted)">NIM: ${k.nim||'-'} · ${waktu}</div>
+            ${k.catatan?`<div style="font-size:13px;color:var(--ink2);margin-top:4px;padding:8px;background:var(--bg);border-radius:6px">"${k.catatan}"</div>`:''}
+            ${k.fileUrl?`<a href="${k.fileUrl}" target="_blank" class="btn-action btn-primary" style="margin-top:8px;display:inline-flex">${svgIcon('download')} ${k.namaFile||'Unduh File'}</a>`:''}
+          </div>`;
+        }).join('');
+      }
+      openModal('Pengumpulan: '+judulTugas, html);
+    };
+
+    // ══════════════════════════════════════════════════
+    // ── KUIS TAB ─────────────────────────────────────
+    // ══════════════════════════════════════════════════
+    async function renderKuisTab(){
+      const isDsn = user.role === 'dosen';
+      const tc = document.getElementById('tabContent');
+      if(!tc) return;
+
+      let kuisList = [];
+      try {
+        const snap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis'));
+        snap.forEach(d => kuisList.push({id:d.id,...d.data()}));
+        kuisList.sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));
+      } catch(e) {
+        tc.innerHTML=`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat kuis</h3><p>${e.message}</p></div>`;
+        return;
+      }
+
+      let html = '';
+
+      if(isDsn){
+        if(kuisList.length===0){
+          html += `<div class="empty" style="padding:40px 20px"><div class="empty-ico">❓</div><h3>Belum ada kuis</h3><p>Buat kuis pilihan ganda untuk mahasiswa.</p></div>`;
+        } else {
+          html += `<div class="tugas-list">`;
+          for(const k of kuisList){
+            const pertanyaanSnap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'pertanyaan'));
+            const jawabanSnap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'jawaban'));
+            html += `
+              <div class="tugas-card">
+                <div class="tugas-card-header">
+                  <div>
+                    <div class="tugas-judul">${k.judul}</div>
+                    <div class="tugas-meta">${svgIcon('help-circle')} ${pertanyaanSnap.size} soal · ${svgIcon('users')} ${jawabanSnap.size} peserta</div>
+                  </div>
+                  <div style="display:flex;gap:6px;align-items:flex-start">
+                    <span class="badge badge-blue">${k.durasi||0} menit</span>
+                    <button class="btn-action btn-danger" onclick="hapusKuis('${k.id}')">${svgIcon('trash')}</button>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+                  <button class="btn-action btn-secondary" onclick="lihatHasilKuis('${k.id}','${k.judul.replace(/'/g,"\\'")}')">📊 Lihat Hasil (${jawabanSnap.size})</button>
+                </div>
+              </div>`;
+          }
+          html += `</div>`;
+        }
+
+        // Form buat kuis
+        html += `
+          <div class="add-materi-card">
+            <div class="add-materi-title">${svgIcon('plus')} Buat Kuis Baru</div>
+            <div>
+              <input class="inp" id="kuisJudul" placeholder="Judul kuis...">
+              <input class="inp" type="number" id="kuisDurasi" placeholder="Durasi (menit), contoh: 30" min="1" max="180">
+              <div style="font-size:13px;font-weight:600;color:var(--ink2);margin-bottom:10px">Pertanyaan</div>
+              <div id="daftarPertanyaan"></div>
+              <button class="btn-action btn-secondary" style="margin-bottom:12px;width:100%;justify-content:center" onclick="tambahPertanyaan()">
+                ${svgIcon('plus')} Tambah Soal
+              </button>
+              <button class="btn-submit" onclick="simpanKuis()">Simpan Kuis</button>
+            </div>
+          </div>`;
+        tc.innerHTML = html;
+        // init satu pertanyaan kosong
+        window._pertanyaan = [];
+        tambahPertanyaan();
+      } else {
+        // Mahasiswa
+        if(kuisList.length===0){
+          html += `<div class="empty"><div class="empty-ico">❓</div><h3>Belum ada kuis</h3><p>Dosen belum membuat kuis untuk pertemuan ini.</p></div>`;
+          tc.innerHTML = html; return;
+        }
+
+        html += `<div class="tugas-list">`;
+        for(const k of kuisList){
+          // cek sudah mengerjakan?
+          let sudahKerjakan = false;
+          let hasilData = null;
+          try {
+            const hSnap = await getDoc(doc(db,'pertemuan',_prt.id,'kuis',k.id,'jawaban',user.id));
+            if(hSnap.exists()){ sudahKerjakan=true; hasilData=hSnap.data(); }
+          } catch(e){}
+          const pertSnap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'pertanyaan'));
+          html += `
+            <div class="tugas-card">
+              <div class="tugas-card-header">
+                <div>
+                  <div class="tugas-judul">${k.judul}</div>
+                  <div class="tugas-meta">${svgIcon('help-circle')} ${pertSnap.size} soal · ⏱️ ${k.durasi||0} menit</div>
+                </div>
+                ${sudahKerjakan
+                  ? `<span class="badge badge-green">✅ Selesai</span>`
+                  : `<span class="badge badge-yellow">⏳ Belum dikerjakan</span>`}
+              </div>
+              ${sudahKerjakan
+                ? `<div class="kumpul-info">
+                    <div style="font-size:14px;font-weight:700;color:var(--p)">Nilai: ${hasilData?.nilai||0} / ${hasilData?.total||0}</div>
+                    <div style="font-size:12px;color:var(--muted);margin-top:2px">Benar: ${hasilData?.benar||0} dari ${hasilData?.total||0} soal</div>
+                  </div>`
+                : `<button class="btn-submit" style="margin-top:10px" onclick="mulaiKuis('${k.id}','${k.judul.replace(/'/g,"\\'")}',${k.durasi||0})">Mulai Kerjakan</button>`
+              }
+            </div>`;
+        }
+        html += `</div>`;
+        tc.innerHTML = html;
+      }
+    }
+
+    // Builder pertanyaan untuk dosen
+    window._pertanyaan = [];
+    window.tambahPertanyaan = ()=>{
+      const idx = window._pertanyaan.length;
+      window._pertanyaan.push({soal:'',pilihan:['','','',''],jawaban:0});
+      const container = document.getElementById('daftarPertanyaan');
+      if(!container) return;
+      const div = document.createElement('div');
+      div.className = 'soal-card';
+      div.id = 'soal_'+idx;
+      div.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:700;color:var(--p)">Soal ${idx+1}</div>
+          <button class="btn-action btn-danger" onclick="hapusPertanyaan(${idx})" style="padding:4px 8px">${svgIcon('trash')}</button>
+        </div>
+        <textarea class="inp" placeholder="Tulis pertanyaan..." style="resize:vertical;min-height:60px;margin-bottom:8px" oninput="updateSoal(${idx},'soal',this.value)"></textarea>
+        <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px">PILIHAN JAWABAN (klik radio = jawaban benar)</div>
+        ${['A','B','C','D'].map((l,i)=>`
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <input type="radio" name="jawaban_${idx}" value="${i}" onchange="updateSoal(${idx},'jawaban',${i})" ${i===0?'checked':''} style="accent-color:var(--p);width:16px;height:16px;flex-shrink:0">
+            <span style="font-size:12px;font-weight:600;color:var(--p);width:16px">${l}.</span>
+            <input class="inp" style="margin:0;flex:1" placeholder="Pilihan ${l}..." oninput="updateSoal(${idx},'pilihan_${i}',this.value)">
+          </div>`).join('')}
+      `;
+      container.appendChild(div);
+    };
+
+    window.hapusPertanyaan = (idx)=>{
+      const el = document.getElementById('soal_'+idx);
+      if(el) el.remove();
+      window._pertanyaan[idx] = null;
+    };
+
+    window.updateSoal = (idx, field, val)=>{
+      if(!window._pertanyaan[idx]) return;
+      if(field==='soal') window._pertanyaan[idx].soal = val;
+      else if(field==='jawaban') window._pertanyaan[idx].jawaban = parseInt(val);
+      else if(field.startsWith('pilihan_')){
+        const i = parseInt(field.split('_')[1]);
+        window._pertanyaan[idx].pilihan[i] = val;
+      }
+    };
+
+    window.simpanKuis = async()=>{
+      const judul = document.getElementById('kuisJudul').value.trim();
+      const durasi = parseInt(document.getElementById('kuisDurasi').value)||30;
+      if(!judul) return toast('⚠️ Isi judul kuis dulu');
+      const valid = window._pertanyaan.filter(p=>p&&p.soal.trim()&&p.pilihan.some(x=>x.trim()));
+      if(valid.length===0) return toast('⚠️ Tambahkan minimal 1 soal');
+      const kuisRef = await addDoc(collection(db,'pertemuan',_prt.id,'kuis'),{
+        judul, durasi, createdAt: serverTimestamp()
+      });
+      for(const p of valid){
+        await addDoc(collection(db,'pertemuan',_prt.id,'kuis',kuisRef.id,'pertanyaan'),p);
+      }
+      toast('✅ Kuis berhasil dibuat!');
+      await renderKuisTab();
+    };
+
+    window.hapusKuis = async(kuisId)=>{
+      if(!confirm('Hapus kuis ini?')) return;
+      await deleteDoc(doc(db,'pertemuan',_prt.id,'kuis',kuisId));
+      toast('🗑️ Kuis dihapus');
+      await renderKuisTab();
+    };
+
+    // Mahasiswa: mulai kuis
+    window.mulaiKuis = async(kuisId, judulKuis, durasi)=>{
+      const pertSnap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis',kuisId,'pertanyaan'));
+      const soalList = [];
+      pertSnap.forEach(d=>soalList.push({id:d.id,...d.data()}));
+      if(soalList.length===0) return toast('⚠️ Kuis ini belum memiliki soal');
+
+      let jawabanMhs = new Array(soalList.length).fill(null);
+      let timeLeft = durasi * 60;
+      let timerInterval = null;
+
+      const renderKuisModal = ()=>{
+        const menit = Math.floor(timeLeft/60).toString().padStart(2,'0');
+        const detik = (timeLeft%60).toString().padStart(2,'0');
+        const timerColor = timeLeft < 60 ? 'color:#dc2626' : 'color:var(--p)';
+
+        let soalHtml = soalList.map((s,i)=>`
+          <div class="soal-card" style="margin-bottom:12px">
+            <div style="font-weight:600;font-size:14px;margin-bottom:10px">${i+1}. ${s.soal}</div>
+            ${(s.pilihan||[]).map((p,j)=>`
+              <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1.5px solid ${jawabanMhs[i]===j?'var(--p)':'var(--border)'};border-radius:8px;margin-bottom:6px;cursor:pointer;background:${jawabanMhs[i]===j?'var(--pl)':'#fff'};transition:all .15s">
+                <input type="radio" name="soal_${i}" value="${j}" ${jawabanMhs[i]===j?'checked':''} onchange="pilihJawaban(${i},${j})" style="accent-color:var(--p)">
+                <span>${['A','B','C','D'][j]}. ${p}</span>
+              </label>`).join('')}
+          </div>`).join('');
+
+        const content = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:12px;background:var(--pl);border-radius:10px">
+            <div style="font-size:13px;font-weight:600">${judulKuis}</div>
+            ${durasi>0?`<div style="font-size:16px;font-weight:800;${timerColor}" id="kuisTimer">⏱️ ${menit}:${detik}</div>`:''}
+          </div>
+          <div id="soalContainer">${soalHtml}</div>
+          <button class="btn-submit" onclick="kumpulKuis('${kuisId}',${JSON.stringify(soalList).replace(/'/g,"\\'")})" style="margin-top:8px">
+            📤 Kumpulkan Jawaban
+          </button>`;
+
+        openModal('Kuis', content);
+      };
+
+      window.pilihJawaban = (soalIdx, pilihanIdx)=>{
+        jawabanMhs[soalIdx] = pilihanIdx;
+        // Update visual tanpa re-render modal penuh
+        document.querySelectorAll(`[name="soal_${soalIdx}"]`).forEach(r=>{
+          const label = r.closest('label');
+          const j = parseInt(r.value);
+          if(label){
+            label.style.borderColor = jawabanMhs[soalIdx]===j?'var(--p)':'var(--border)';
+            label.style.background = jawabanMhs[soalIdx]===j?'var(--pl)':'#fff';
+          }
+        });
+      };
+
+      window.kumpulKuis = async(kuisId, soalListData)=>{
+        if(timerInterval) clearInterval(timerInterval);
+        let benar = 0;
+        soalListData.forEach((s,i)=>{ if(jawabanMhs[i]===s.jawaban) benar++; });
+        const total = soalListData.length;
+        const nilai = Math.round((benar/total)*100);
+        await setDoc(doc(db,'pertemuan',_prt.id,'kuis',kuisId,'jawaban',user.id),{
+          mahasiswaId: user.id, nama: user.nama, nim: user.nim||'-',
+          jawaban: jawabanMhs, benar, total, nilai, waktu: serverTimestamp()
+        });
+        closeModal();
+        toast(`✅ Selesai! Nilai: ${nilai} (${benar}/${total} benar)`);
+        await renderKuisTab();
+      };
+
+      renderKuisModal();
+
+      if(durasi > 0){
+        timerInterval = setInterval(()=>{
+          timeLeft--;
+          const el = document.getElementById('kuisTimer');
+          if(el){
+            const m = Math.floor(timeLeft/60).toString().padStart(2,'0');
+            const s = (timeLeft%60).toString().padStart(2,'0');
+            el.textContent = `⏱️ ${m}:${s}`;
+            el.style.color = timeLeft < 60 ? '#dc2626' : 'var(--p)';
+          }
+          if(timeLeft <= 0){
+            clearInterval(timerInterval);
+            toast('⏰ Waktu habis! Jawaban dikumpulkan otomatis.');
+            window.kumpulKuis(kuisId, soalList);
+          }
+        }, 1000);
+      }
+    };
+
+    window.lihatHasilKuis = async(kuisId, judulKuis)=>{
+      const snap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis',kuisId,'jawaban'));
+      const list = [];
+      snap.forEach(d=>list.push(d.data()));
+      list.sort((a,b)=>(b.nilai||0)-(a.nilai||0));
+
+      let html = '';
+      if(list.length===0){
+        html = `<div class="empty" style="padding:30px"><div class="empty-ico">📊</div><h3>Belum ada peserta</h3></div>`;
+      } else {
+        const rataRata = Math.round(list.reduce((s,x)=>s+(x.nilai||0),0)/list.length);
+        html = `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+            <div style="background:var(--pl);border-radius:10px;padding:14px;text-align:center">
+              <div style="font-size:24px;font-weight:800;color:var(--p)">${list.length}</div>
+              <div style="font-size:12px;color:var(--muted)">Peserta</div>
+            </div>
+            <div style="background:#ecfdf5;border-radius:10px;padding:14px;text-align:center">
+              <div style="font-size:24px;font-weight:800;color:var(--g)">${rataRata}</div>
+              <div style="font-size:12px;color:var(--muted)">Rata-rata Nilai</div>
+            </div>
+          </div>
+          <div class="tugas-list">
+          ${list.map((r,i)=>`
+            <div class="kumpul-item" style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font-size:12px;font-weight:700;color:var(--muted)">#${i+1}</span>
+                  <span style="font-weight:600">${r.nama}</span>
+                </div>
+                <div style="font-size:12px;color:var(--muted)">NIM: ${r.nim||'-'} · Benar ${r.benar}/${r.total}</div>
+              </div>
+              <div style="font-size:20px;font-weight:800;color:${r.nilai>=70?'var(--g)':r.nilai>=50?'var(--a)':'var(--r)'}">
+                ${r.nilai}
+              </div>
+            </div>`).join('')}
+          </div>`;
+      }
+      openModal('Hasil: '+judulKuis, html);
+    };
+
+    // ══════════════════════════════════════════════════
+    // ── ABSENSI TAB ──────────────────────────────────
+    // ══════════════════════════════════════════════════
+    async function renderAbsensiTab(){
+      const isDsn = user.role === 'dosen';
+      const tc = document.getElementById('tabContent');
+      if(!tc) return;
+
+      // Ambil semua mahasiswa
+      const mhsSnap = await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
+      const mhsList = [];
+      mhsSnap.forEach(d=>mhsList.push({id:d.id,...d.data()}));
+      mhsList.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
+
+      // Ambil data absensi untuk pertemuan ini
+      const absSnap = await getDocs(query(collection(db,'absensi'),where('pertemuanId','==',_prt.id)));
+      const absMap = {};
+      absSnap.forEach(d=>{ const dat=d.data(); absMap[dat.mahasiswaId]={id:d.id,...dat}; });
+
+      if(isDsn){
+        let html = `
+          <div class="card" style="margin-bottom:12px">
+            <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px">📋 Rekap Absensi Pertemuan ${_prt.pertemuanKe}</div>
+            <div style="display:flex;gap:10px">
+              <span class="badge badge-green">Hadir: ${Object.values(absMap).filter(a=>a.status==='hadir').length}</span>
+              <span class="badge badge-red">Tidak: ${Object.values(absMap).filter(a=>a.status==='tidak').length}</span>
+              <span class="badge badge-yellow">Izin: ${Object.values(absMap).filter(a=>a.status==='izin').length}</span>
+              <span class="badge" style="background:#f3f4f6;color:var(--muted)">Belum: ${mhsList.length - Object.keys(absMap).length}</span>
+            </div>
+          </div>
+          <div class="tugas-list">`;
+
+        mhsList.forEach(m=>{
+          const abs = absMap[m.id];
+          const status = abs?.status||'belum';
+          const statusLabel = {hadir:'✅ Hadir',tidak:'❌ Tidak Hadir',izin:'📋 Izin',belum:'—'}[status]||'—';
+          const statusColor = {hadir:'badge-green',tidak:'badge-red',izin:'badge-yellow',belum:''}[status]||'';
+          html += `
+            <div class="kumpul-item" style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div style="font-weight:600;font-size:14px">${m.nama}</div>
+                <div style="font-size:12px;color:var(--muted)">NIM: ${m.nim||'-'} · ${m.prodi||'-'}</div>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center">
+                <span class="badge ${statusColor}">${statusLabel}</span>
+                <select class="inp" style="margin:0;width:auto;padding:6px 10px;font-size:12px" onchange="updateAbsensi('${m.id}','${m.nama}',this.value)">
+                  <option value="">Ubah...</option>
+                  <option value="hadir">Hadir</option>
+                  <option value="tidak">Tidak Hadir</option>
+                  <option value="izin">Izin</option>
+                </select>
+              </div>
+            </div>`;
+        });
+
+        html += `</div>
+          <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-action btn-secondary" onclick="absensiSemuaHadir()">✅ Tandai Semua Hadir</button>
+          </div>`;
+
+        tc.innerHTML = html;
+      } else {
+        // Mahasiswa: lihat status absensi
+        const abs = absMap[user.id];
+        const status = abs?.status||null;
+        const statusInfo = {
+          hadir:{icon:'✅',label:'Hadir',color:'var(--g)',bg:'#ecfdf5'},
+          tidak:{icon:'❌',label:'Tidak Hadir',color:'var(--r)',bg:'var(--rb)'},
+          izin:{icon:'📋',label:'Izin',color:'var(--a)',bg:'#fffbeb'},
+        };
+        const info = status ? statusInfo[status] : null;
+
+        tc.innerHTML = `
+          <div class="card" style="text-align:center;padding:32px">
+            ${info
+              ? `<div style="font-size:48px;margin-bottom:12px">${info.icon}</div>
+                 <div style="font-size:18px;font-weight:700;color:${info.color};margin-bottom:8px">Status: ${info.label}</div>
+                 <div style="font-size:13px;color:var(--muted)">Absensi Pertemuan ${_prt.pertemuanKe} telah tercatat</div>`
+              : `<div style="font-size:48px;margin-bottom:12px">📋</div>
+                 <div style="font-size:16px;font-weight:700;color:var(--ink);margin-bottom:6px">Belum Diabsen</div>
+                 <div style="font-size:13px;color:var(--muted)">Absensi akan dicatat oleh dosen</div>`
+            }
+          </div>
+          <div class="card" style="margin-top:12px">
+            <div style="font-size:13px;font-weight:700;margin-bottom:10px">Rekap Kehadiranmu</div>
+            <div id="rekapMhs"><div class="loading"><div class="spin"></div></div></div>
+          </div>`;
+
+        // hitung rekap kehadiran mahasiswa ini di semua pertemuan
+        const allAbsSnap = await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id)));
+        const allAbs = [];
+        allAbsSnap.forEach(d=>allAbs.push(d.data()));
+        const hadir = allAbs.filter(a=>a.status==='hadir').length;
+        const tidak = allAbs.filter(a=>a.status==='tidak').length;
+        const izin = allAbs.filter(a=>a.status==='izin').length;
+        const totalDiabsen = allAbs.length;
+        const pct = totalDiabsen > 0 ? Math.round(hadir/totalDiabsen*100) : 0;
+        const rekapEl = document.getElementById('rekapMhs');
+        if(rekapEl){
+          rekapEl.innerHTML = `
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center">
+              <div><div style="font-size:20px;font-weight:800;color:var(--g)">${hadir}</div><div style="font-size:11px;color:var(--muted)">Hadir</div></div>
+              <div><div style="font-size:20px;font-weight:800;color:var(--r)">${tidak}</div><div style="font-size:11px;color:var(--muted)">Tidak</div></div>
+              <div><div style="font-size:20px;font-weight:800;color:var(--a)">${izin}</div><div style="font-size:11px;color:var(--muted)">Izin</div></div>
+              <div><div style="font-size:20px;font-weight:800;color:var(--p)">${pct}%</div><div style="font-size:11px;color:var(--muted)">Kehadiran</div></div>
+            </div>`;
+        }
+      }
+    }
+
+    window.updateAbsensi = async(mhsId, nama, status)=>{
+      if(!status) return;
+      const existing = await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',mhsId),where('pertemuanId','==',_prt.id)));
+      if(existing.empty){
+        await addDoc(collection(db,'absensi'),{
+          mahasiswaId: mhsId, namaMhs: nama, pertemuanId: _prt.id, pertemuanKe: _prt.pertemuanKe,
+          status, updatedAt: serverTimestamp()
+        });
+      } else {
+        await updateDoc(doc(db,'absensi',existing.docs[0].id),{status, updatedAt:serverTimestamp()});
+      }
+      toast('✅ Absensi diperbarui');
+      await renderAbsensiTab();
+    };
+
+    window.absensiSemuaHadir = async()=>{
+      if(!confirm('Tandai semua mahasiswa hadir?')) return;
+      const mhsSnap = await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
+      const batch = [];
+      mhsSnap.forEach(d=>batch.push({id:d.id,...d.data()}));
+      for(const m of batch){
+        const existing = await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',m.id),where('pertemuanId','==',_prt.id)));
+        if(existing.empty){
+          await addDoc(collection(db,'absensi'),{
+            mahasiswaId:m.id,namaMhs:m.nama,pertemuanId:_prt.id,pertemuanKe:_prt.pertemuanKe,status:'hadir',updatedAt:serverTimestamp()
+          });
+        } else {
+          await updateDoc(doc(db,'absensi',existing.docs[0].id),{status:'hadir',updatedAt:serverTimestamp()});
+        }
+      }
+      toast('✅ Semua mahasiswa ditandai hadir');
+      await renderAbsensiTab();
+    };
+
+    // ══════════════════════════════════════════════════
+    // ── DATA MAHASISWA ────────────────────────────────
+    // ══════════════════════════════════════════════════
+    async function renderMahasiswa(){
+      const snap = await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
+      const list = [];
+      snap.forEach(d=>list.push({id:d.id,...d.data()}));
+      list.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
+
+      if(list.length===0){
+        setContent(`<div class="empty"><div class="empty-ico">👥</div><h3>Belum ada mahasiswa</h3><p>Mahasiswa akan muncul setelah mendaftar.</p></div>`);
+        return;
+      }
+
+      // Ambil semua absensi dan nilai
+      const [allAbsSnap, allNilaiSnap] = await Promise.all([
+        getDocs(collection(db,'absensi')),
+        getDocs(collection(db,'nilai_akhir'))
+      ]);
+      const absMap = {}; // mahasiswaId -> [status]
+      allAbsSnap.forEach(d=>{
+        const dat=d.data();
+        if(!absMap[dat.mahasiswaId]) absMap[dat.mahasiswaId]=[];
+        absMap[dat.mahasiswaId].push(dat.status);
+      });
+      const nilaiMap = {};
+      allNilaiSnap.forEach(d=>{ nilaiMap[d.id]=d.data(); });
+
+      setContent(`
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+          <div class="section-title" style="flex:1">${list.length} Mahasiswa Terdaftar</div>
+          <div style="position:relative">
+            <input class="inp" id="cariMhs" placeholder="Cari nama / NIM..." style="margin:0;padding-left:36px;width:220px" oninput="filterMhs()">
+            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted)">${svgIcon('search')}</span>
+          </div>
+        </div>
+        <div class="mhs-table-wrap">
+          <table class="mhs-table" id="mhsTable">
+            <thead>
+              <tr>
+                <th>No</th>
+                <th>Nama</th>
+                <th>NIM</th>
+                <th>Prodi</th>
+                <th>Sem</th>
+                <th>Kehadiran</th>
+                <th>Nilai</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="mhsTbody">
+              ${list.map((m,i)=>{
+                const abs = absMap[m.id]||[];
+                const hadir = abs.filter(s=>s==='hadir').length;
+                const total = abs.length;
+                const pct = total>0?Math.round(hadir/total*100):0;
+                const nilai = nilaiMap[m.id]?.nilaiAkhir||'-';
+                const pctColor = pct>=75?'var(--g)':pct>=50?'var(--a)':'var(--r)';
+                return `<tr data-nama="${(m.nama||'').toLowerCase()}" data-nim="${(m.nim||'').toLowerCase()}">
+                  <td style="color:var(--muted)">${i+1}</td>
+                  <td><div style="font-weight:600">${m.nama||'-'}</div><div style="font-size:11px;color:var(--muted)">${m.email||''}</div></td>
+                  <td><span class="badge" style="background:var(--pl);color:var(--p)">${m.nim||'-'}</span></td>
+                  <td style="font-size:12px">${m.prodi||'-'}</td>
+                  <td style="text-align:center">${m.semester||'-'}</td>
+                  <td>
+                    <div style="font-weight:700;color:${pctColor}">${pct}%</div>
+                    <div style="font-size:11px;color:var(--muted)">${hadir}/${total} pertemuan</div>
+                  </td>
+                  <td><span style="font-weight:700;font-size:16px;color:${nilai!=='-'?(parseInt(nilai)>=70?'var(--g)':parseInt(nilai)>=50?'var(--a)':'var(--r)'):'var(--muted)'}">${nilai}</span></td>
+                  <td>
+                    <button class="btn-action btn-secondary" onclick="lihatDetailMhs('${m.id}','${(m.nama||'').replace(/'/g,"\\'")}')">Detail</button>
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`);
+    }
+
+    window.filterMhs = ()=>{
+      const q = document.getElementById('cariMhs').value.toLowerCase();
+      document.querySelectorAll('#mhsTbody tr').forEach(row=>{
+        const nama = row.dataset.nama||'';
+        const nim = row.dataset.nim||'';
+        row.style.display = (nama.includes(q)||nim.includes(q)) ? '' : 'none';
+      });
+    };
+
+    window.lihatDetailMhs = async(mhsId, namaMhs)=>{
+      const [mhsSnap, allAbsSnap, nilaiSnap] = await Promise.all([
+        getDoc(doc(db,'users',mhsId)),
+        getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',mhsId))),
+        getDoc(doc(db,'nilai_akhir',mhsId))
+      ]);
+      const m = mhsSnap.exists()?mhsSnap.data():{};
+      const absList = [];
+      allAbsSnap.forEach(d=>absList.push(d.data()));
+      const hadir = absList.filter(a=>a.status==='hadir').length;
+      const tidak = absList.filter(a=>a.status==='tidak').length;
+      const izin = absList.filter(a=>a.status==='izin').length;
+      const total = absList.length;
+      const pct = total>0?Math.round(hadir/total*100):0;
+      const n = nilaiSnap.exists()?nilaiSnap.data():{};
+
+      const html = `
+        <div style="text-align:center;margin-bottom:16px">
+          <div style="width:64px;height:64px;border-radius:16px;background:linear-gradient(135deg,var(--p),#7c3aed);color:#fff;font-size:22px;font-weight:800;display:flex;align-items:center;justify-content:center;margin:0 auto 10px">
+            ${(m.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
+          </div>
+          <div style="font-size:18px;font-weight:700">${m.nama||'-'}</div>
+          <div style="font-size:13px;color:var(--muted)">${m.email||''}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          <div class="card" style="padding:12px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">NIM</div>
+            <div style="font-weight:700">${m.nim||'-'}</div>
+          </div>
+          <div class="card" style="padding:12px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Semester</div>
+            <div style="font-weight:700">${m.semester||'-'}</div>
+          </div>
+          <div class="card" style="padding:12px;grid-column:1/-1">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Program Studi</div>
+            <div style="font-weight:700">${m.prodi||'-'}</div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:12px">
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px">📋 Rekap Kehadiran</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);text-align:center;gap:8px">
+            <div><div style="font-size:22px;font-weight:800;color:var(--g)">${hadir}</div><div style="font-size:11px;color:var(--muted)">Hadir</div></div>
+            <div><div style="font-size:22px;font-weight:800;color:var(--r)">${tidak}</div><div style="font-size:11px;color:var(--muted)">Tidak</div></div>
+            <div><div style="font-size:22px;font-weight:800;color:var(--a)">${izin}</div><div style="font-size:11px;color:var(--muted)">Izin</div></div>
+            <div><div style="font-size:22px;font-weight:800;color:${pct>=75?'var(--g)':pct>=50?'var(--a)':'var(--r)'}">${pct}%</div><div style="font-size:11px;color:var(--muted)">Kehadiran</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px">🎓 Nilai</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center">
+            ${[['UTS','nilaiUTS'],['UAS','nilaiUAS'],['Akhir','nilaiAkhir']].map(([lbl,key])=>`
+              <div>
+                <div style="font-size:22px;font-weight:800;color:var(--p)">${n[key]||'-'}</div>
+                <div style="font-size:11px;color:var(--muted)">${lbl}</div>
+              </div>`).join('')}
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <input class="inp" id="editNilaiUTS_${mhsId}" placeholder="UTS" value="${n.nilaiUTS||''}" style="margin:0">
+            <input class="inp" id="editNilaiUAS_${mhsId}" placeholder="UAS" value="${n.nilaiUAS||''}" style="margin:0">
+            <input class="inp" id="editNilaiAkhir_${mhsId}" placeholder="Akhir" value="${n.nilaiAkhir||''}" style="margin:0">
+          </div>
+          <button class="btn-submit" style="margin-top:10px" onclick="simpanNilaiDariDetail('${mhsId}')">Simpan Nilai</button>
+        </div>`;
+
+      openModal('Detail: '+namaMhs, html);
+    };
+
+    window.simpanNilaiDariDetail = async(mhsId)=>{
+      const uts = document.getElementById('editNilaiUTS_'+mhsId)?.value.trim();
+      const uas = document.getElementById('editNilaiUAS_'+mhsId)?.value.trim();
+      const akhir = document.getElementById('editNilaiAkhir_'+mhsId)?.value.trim();
+      await setDoc(doc(db,'nilai_akhir',mhsId),{
+        nilaiUTS: uts?parseFloat(uts):null,
+        nilaiUAS: uas?parseFloat(uas):null,
+        nilaiAkhir: akhir?parseFloat(akhir):null,
+        updatedAt: serverTimestamp()
+      },{merge:true});
+      toast('✅ Nilai disimpan!');
+    };
+
+    // ── INPUT NILAI (halaman khusus dosen) ───────────────────
+    async function renderNilaiDsn(){
+      const snap = await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
+      const list = [];
+      snap.forEach(d=>list.push({id:d.id,...d.data()}));
+      list.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
+      if(list.length===0){
+        setContent(`<div class="empty"><div class="empty-ico">✏️</div><h3>Belum ada mahasiswa</h3></div>`);
+        return;
+      }
+      const nilaiSnap = await getDocs(collection(db,'nilai_akhir'));
+      const nilaiMap = {};
+      nilaiSnap.forEach(d=>nilaiMap[d.id]=d.data());
+
+      setContent(`
+        <div class="section-title" style="margin-bottom:12px">Input Nilai Mahasiswa</div>
+        <div class="card">
+          <table class="mhs-table">
+            <thead><tr><th>Nama / NIM</th><th>UTS</th><th>UAS</th><th>Nilai Akhir</th><th>Simpan</th></tr></thead>
+            <tbody>
+              ${list.map(m=>{
+                const n=nilaiMap[m.id]||{};
+                return `<tr>
+                  <td><div style="font-weight:600">${m.nama}</div><div style="font-size:11px;color:var(--muted)">${m.nim||'-'}</div></td>
+                  <td><input class="inp" style="margin:0;width:70px;text-align:center" id="n_uts_${m.id}" value="${n.nilaiUTS||''}" placeholder="-"></td>
+                  <td><input class="inp" style="margin:0;width:70px;text-align:center" id="n_uas_${m.id}" value="${n.nilaiUAS||''}" placeholder="-"></td>
+                  <td><input class="inp" style="margin:0;width:70px;text-align:center" id="n_akhir_${m.id}" value="${n.nilaiAkhir||''}" placeholder="-" oninput="hitungAkhir('${m.id}')"></td>
+                  <td><button class="btn-action btn-primary" onclick="simpanNilai('${m.id}')">${svgIcon('check')} Simpan</button></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`);
+    }
+
+    window.hitungAkhir = (id)=>{
+      const uts = parseFloat(document.getElementById('n_uts_'+id)?.value)||0;
+      const uas = parseFloat(document.getElementById('n_uas_'+id)?.value)||0;
+      const el = document.getElementById('n_akhir_'+id);
+      if(el && !el.value) el.value = Math.round(uts*0.4 + uas*0.6);
+    };
+
+    window.simpanNilai = async(mhsId)=>{
+      const uts = document.getElementById('n_uts_'+mhsId)?.value.trim();
+      const uas = document.getElementById('n_uas_'+mhsId)?.value.trim();
+      const akhir = document.getElementById('n_akhir_'+mhsId)?.value.trim();
+      await setDoc(doc(db,'nilai_akhir',mhsId),{
+        nilaiUTS: uts?parseFloat(uts):null,
+        nilaiUAS: uas?parseFloat(uas):null,
+        nilaiAkhir: akhir?parseFloat(akhir):null,
+        updatedAt: serverTimestamp()
+      },{merge:true});
+      toast('✅ Nilai disimpan!');
+    };
+
+    // ── ABSENSI MAHASISWA (halaman) ───────────────────────────
+    async function renderAbsensiMhs(){
+      const [prtSnap, absSnap] = await Promise.all([
+        getDocs(collection(db,'pertemuan')),
+        getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id)))
+      ]);
+      const prts = [];
+      prtSnap.forEach(d=>prts.push({id:d.id,...d.data()}));
+      prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
+      const absMap = {};
+      absSnap.forEach(d=>{ const dat=d.data(); absMap[dat.pertemuanId]=dat.status; });
+      const hadir = Object.values(absMap).filter(s=>s==='hadir').length;
+      const total = Object.keys(absMap).length;
+      const pct = total>0?Math.round(hadir/total*100):0;
+
+      setContent(`
+        <div class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+          <div class="stat-card" style="--c:var(--g)">
+            <div class="stat-ico" style="background:#ecfdf5;color:var(--g)">${svgIcon('check-square')}</div>
+            <div class="stat-val">${hadir}</div>
+            <div class="stat-lbl">Hadir</div>
+          </div>
+          <div class="stat-card" style="--c:var(--r)">
+            <div class="stat-ico" style="background:var(--rb);color:var(--r)">${svgIcon('x')}</div>
+            <div class="stat-val">${Object.values(absMap).filter(s=>s==='tidak').length}</div>
+            <div class="stat-lbl">Tidak Hadir</div>
+          </div>
+          <div class="stat-card" style="--c:var(--a)">
+            <div class="stat-ico" style="background:#fffbeb;color:var(--a)">${svgIcon('file-text')}</div>
+            <div class="stat-val">${Object.values(absMap).filter(s=>s==='izin').length}</div>
+            <div class="stat-lbl">Izin</div>
+          </div>
+          <div class="stat-card" style="--c:var(--p)">
+            <div class="stat-ico" style="background:var(--pl);color:var(--p)">${svgIcon('bar-chart-2')}</div>
+            <div class="stat-val" style="color:${pct>=75?'var(--g)':pct>=50?'var(--a)':'var(--r)'}">${pct}%</div>
+            <div class="stat-lbl">Kehadiran</div>
+          </div>
+        </div>
+        <div class="section-title" style="margin-bottom:10px">Riwayat Absensi</div>
+        <div class="card" style="padding:0;overflow:hidden">
+          ${prts.length===0
+            ? `<div class="empty"><div class="empty-ico">📅</div><h3>Belum ada pertemuan</h3></div>`
+            : prts.map(p=>{
+              const st=absMap[p.id]||null;
+              const icon={hadir:'✅',tidak:'❌',izin:'📋'}[st]||'—';
+              const label={hadir:'Hadir',tidak:'Tidak Hadir',izin:'Izin'}[st]||'Belum Dicatat';
+              const badgeCls={hadir:'badge-green',tidak:'badge-red',izin:'badge-yellow'}[st]||'';
+              return `<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)">
+                <div>
+                  <div style="font-weight:600;font-size:14px">Pertemuan ${p.pertemuanKe}</div>
+                  <div style="font-size:12px;color:var(--muted)">${p.topik||'—'}</div>
+                </div>
+                <span class="badge ${badgeCls}">${icon} ${label}</span>
+              </div>`;
+            }).join('')}
+        </div>`);
+    }
+
+    // ── NILAI MAHASISWA (halaman) ─────────────────────────────
+    async function renderNilaiMhs(){
+      const snap = await getDoc(doc(db,'nilai_akhir',user.id));
+      const n = snap.exists()?snap.data():{};
+      const na = n.nilaiAkhir;
+      const grade = na>=85?'A':na>=75?'B':na>=65?'C':na>=55?'D':'E';
+      const gradeColor = na>=75?'var(--g)':na>=55?'var(--a)':'var(--r)';
+
+      setContent(`
+        <div class="profil-card" style="max-width:480px">
+          <div style="font-size:64px;margin-bottom:8px">${svgIcon('award')}</div>
+          <div class="profil-nama">${user.nama}</div>
+          <div class="profil-email">NIM: ${user.nim||'-'}</div>
+          <div class="profil-badge">${user.prodi||'-'} · Sem ${user.semester||'-'}</div>
+
+          ${na!=null
+            ? `<div style="margin:20px 0;text-align:center">
+                <div style="font-size:72px;font-weight:800;color:${gradeColor};line-height:1">${grade}</div>
+                <div style="font-size:14px;color:var(--muted);margin-top:4px">Grade</div>
+              </div>`
+            : `<div style="margin:20px 0;font-size:36px">⏳</div>`}
+
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;margin-top:8px">
+            ${[['UTS',n.nilaiUTS,'#eef2ff','var(--p)'],['UAS',n.nilaiUAS,'#ecfdf5','var(--g)'],['Akhir',n.nilaiAkhir,'var(--pl)','var(--p)']].map(([lbl,val,bg,col])=>`
+              <div style="background:${bg};border-radius:12px;padding:16px;text-align:center">
+                <div style="font-size:28px;font-weight:800;color:${col}">${val??'-'}</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:4px">${lbl}</div>
+              </div>`).join('')}
+          </div>
+          ${na==null?`<div style="margin-top:16px;font-size:13px;color:var(--muted);text-align:center">Nilai belum diinput oleh dosen</div>`:''}
+        </div>`);
+    }
+
+    // ── NOTIFIKASI ─────────────────────────────────────────────
+    async function renderNotifikasi(){
+      const isDsn = user.role === 'dosen';
+      let html = `<div class="section-title" style="margin-bottom:12px">Notifikasi</div>`;
+      if(isDsn){
+        html += `
+          <div class="card" style="margin-bottom:12px">
+            <div style="font-size:13px;font-weight:700;margin-bottom:10px">${svgIcon('plus')} Kirim Notifikasi</div>
+            <input id="notifJudul" class="inp" placeholder="Judul notifikasi">
+            <textarea id="notifIsi" class="inp" placeholder="Isi notifikasi..." style="resize:vertical;min-height:80px"></textarea>
+            <button class="btn-submit" onclick="kirimNotif()">Kirim ke Semua</button>
+          </div>`;
+      }
+      html += `<div id="listNotif"><div class="loading"><div class="spin"></div></div></div>`;
       setContent(html);
       await loadNotif();
     }
@@ -618,53 +1581,48 @@
     window.kirimNotif = async () => {
       const judul = document.getElementById('notifJudul').value.trim();
       const isi = document.getElementById('notifIsi').value.trim();
-
-      if(!judul || !isi){
-        alert('Isi semua field!');
-        return;
-      }
-
-      await addDoc(collection(db, 'notifikasi'), {
-        title: judul,
-        pesan: isi,
-        createdAt: serverTimestamp()
-      });
-
+      if(!judul || !isi){ alert('Isi semua field!'); return; }
+      await addDoc(collection(db, 'notifikasi'), { title: judul, pesan: isi, createdAt: serverTimestamp() });
       document.getElementById('notifJudul').value='';
       document.getElementById('notifIsi').value='';
-      toast('✅ Berhasil kirim notifikasi!');
+      toast('✅ Notifikasi terkirim!');
       await loadNotif();
     };
 
     async function loadNotif(){
       const list = [];
       try {
-        const snap = await getDocs(query(
-          collection(db,'notifikasi'),
-          orderBy('createdAt','desc')
-        ));
-        snap.forEach(d => list.push(d.data()));
-      } catch(e) {
-        console.error('Gagal memuat notifikasi:', e);
-      }
-
+        const snap = await getDocs(query(collection(db,'notifikasi'),orderBy('createdAt','desc')));
+        snap.forEach(d => list.push({id:d.id,...d.data()}));
+      } catch(e) { console.error('Gagal memuat notifikasi:', e); }
       const el = document.getElementById('listNotif');
       if(!el) return;
-
       if(list.length===0){
-        el.innerHTML = `<div class="empty"><div class="empty-ico">🔔</div><h3>Belum ada notifikasi</h3><p>Tidak ada notifikasi saat ini.</p></div>`;
+        el.innerHTML = `<div class="empty"><div class="empty-ico">🔔</div><h3>Belum ada notifikasi</h3></div>`;
         return;
       }
-
-      el.innerHTML = list.map(n => `
-        <div class="card">
-          <b>${n.title||''}</b>
-          <div style="font-size:13px;color:gray">${n.pesan||''}</div>
-        </div>
-      `).join('');
+      el.innerHTML = list.map(n => {
+        const waktu = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleDateString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+        return `<div class="card" style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div>
+              <div style="font-weight:700;font-size:14px;margin-bottom:4px">🔔 ${n.title||''}</div>
+              <div style="font-size:13px;color:var(--ink2)">${n.pesan||''}</div>
+            </div>
+            ${user.role==='dosen'?`<button class="btn-action btn-danger" style="padding:4px 8px;flex-shrink:0" onclick="hapusNotif('${n.id}')">${svgIcon('trash')}</button>`:''}
+          </div>
+          ${waktu?`<div style="font-size:11px;color:var(--muted);margin-top:6px">${waktu}</div>`:''}
+        </div>`;
+      }).join('');
     }
 
-    // ── PATCH: renderProfil dibungkus try/catch supaya tidak macet jika field user kosong ──
+    window.hapusNotif = async(notifId)=>{
+      await deleteDoc(doc(db,'notifikasi',notifId));
+      toast('🗑️ Notifikasi dihapus');
+      await loadNotif();
+    };
+
+    // ── PROFIL ────────────────────────────────────────────────
     async function renderProfil(){
       try {
         const inisial = (user?.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
@@ -680,13 +1638,9 @@
             <button class="btn-submit" style="margin-top:20px;max-width:200px" onclick="doLogout()">Keluar</button>
           </div>`);
       } catch(e) {
-        console.error('Gagal render profil:', e);
         setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat profil</h3><p>${e.message}</p></div>`);
       }
     }
-
-    async function renderAbsensiMhs(){ setContent('<div class="empty"><div class="empty-ico">✋</div><h3>Absensi Saya</h3><p>Fitur segera hadir.</p></div>'); }
-    async function renderNilaiMhs(){ setContent('<div class="empty"><div class="empty-ico">📊</div><h3>Nilai Saya</h3><p>Fitur segera hadir.</p></div>'); }
 
     // ── UTILS ─────────────────────────────────────────────────
     function v(id){ return document.getElementById(id)?.value||''; }
@@ -709,22 +1663,11 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     :root {
-      --ink: #111827;
-      --ink2: #374151;
-      --muted: #6b7280;
-      --border: #e5e7eb;
-      --bg: #f9fafb;
-      --white: #ffffff;
-      --p: #4f46e5;
-      --pd: #3730a3;
-      --pl: #eef2ff;
-      --g: #059669;
-      --r: #dc2626;
-      --rb: #fef2f2;
-      --a: #d97706;
-      --side: 240px;
-      --top: 60px;
-      --bot: 64px;
+      --ink: #111827; --ink2: #374151; --muted: #6b7280;
+      --border: #e5e7eb; --bg: #f9fafb; --white: #ffffff;
+      --p: #4f46e5; --pd: #3730a3; --pl: #eef2ff;
+      --g: #059669; --r: #dc2626; --rb: #fef2f2; --a: #d97706;
+      --side: 240px; --top: 60px; --bot: 64px;
       --radius: 12px;
       --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
       --shadow-md: 0 4px 16px rgba(0,0,0,.1);
@@ -856,6 +1799,34 @@
     .progress-fill { height: 100%; background: linear-gradient(90deg, var(--p), #7c3aed); border-radius: 3px; transition: width .3s; }
     .progress-txt { font-size: 12px; color: var(--muted); text-align: center; font-weight: 500; }
 
+    /* ── TUGAS & KUIS ── */
+    .tugas-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+    .tugas-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+    .tugas-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+    .tugas-judul { font-weight: 700; font-size: 15px; color: var(--ink); }
+    .tugas-meta { font-size: 12px; color: var(--muted); margin-top: 4px; display: flex; align-items: center; gap: 5px; }
+    .tugas-deskripsi { font-size: 13px; color: var(--ink2); line-height: 1.6; }
+    .kumpul-info { margin-top: 10px; padding: 10px 12px; background: #ecfdf5; border-radius: 8px; border: 1px solid #6ee7b7; }
+    .kumpul-item { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 8px; }
+
+    /* ── BADGE ── */
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .badge-green { background: #ecfdf5; color: var(--g); }
+    .badge-red { background: var(--rb); color: var(--r); }
+    .badge-yellow { background: #fffbeb; color: var(--a); }
+    .badge-blue { background: var(--pl); color: var(--p); }
+
+    /* ── SOAL KUIS ── */
+    .soal-card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 10px; box-shadow: var(--shadow); }
+
+    /* ── DATA MAHASISWA TABLE ── */
+    .mhs-table-wrap { overflow-x: auto; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .mhs-table { width: 100%; border-collapse: collapse; }
+    .mhs-table th { padding: 12px 14px; text-align: left; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; border-bottom: 1px solid var(--border); background: var(--bg); white-space: nowrap; }
+    .mhs-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .mhs-table tr:last-child td { border-bottom: none; }
+    .mhs-table tr:hover td { background: #fafafa; }
+
     /* ── PROFIL ── */
     .profil-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; text-align: center; max-width: 400px; margin: 0 auto; box-shadow: var(--shadow); }
     .profil-av { width: 72px; height: 72px; border-radius: 20px; background: linear-gradient(135deg, var(--p), #7c3aed); color: #fff; font-size: 24px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
@@ -864,9 +1835,8 @@
     .profil-badge { display: inline-block; background: var(--pl); color: var(--p); font-size: 12px; font-weight: 700; padding: 5px 14px; border-radius: 20px; margin-bottom: 12px; }
     .profil-detail { font-size: 13px; color: var(--ink2); padding: 6px 0; border-bottom: 1px solid var(--border); }
 
-    /* ── NOTIF CARD (PATCH: ditambahkan, sebelumnya belum ada style .card) ── */
+    /* ── CARD ── */
     .card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; box-shadow: var(--shadow); }
-    .card textarea.inp { resize: vertical; min-height: 80px; }
 
     /* ── MODAL ── */
     .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: flex-end; justify-content: center; z-index: 200; backdrop-filter: blur(4px); }
@@ -903,6 +1873,7 @@
       .prt-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
       .materi-actions { flex-direction: column; }
       .toast { bottom: calc(var(--bot) + 16px); }
+      .mhs-table th, .mhs-table td { padding: 10px 10px; }
     }
     @media(max-width: 480px){
       .prt-grid { grid-template-columns: 1fr 1fr; }
