@@ -1,0 +1,1790 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>EduCampus</title>
+  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
+  <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, collection, query, where, orderBy, serverTimestamp, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCKqz6WFohckcvdFYt0YSeXP6GyGvFkHq0",
+      authDomain: "edu-campus-6aa80.firebaseapp.com",
+      projectId: "edu-campus-6aa80",
+      storageBucket: "edu-campus-6aa80.firebasestorage.app",
+      messagingSenderId: "1077240003890",
+      appId: "1:1077240003890:web:f793d089358f8b49fcab2b",
+      measurementId: "G-YJKDPXSRDG"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    window.db = db; window.auth = auth;
+
+// ══════════════════════════════════════════════════
+// CLOUDINARY UPLOAD (menggantikan Google Drive)
+// ══════════════════════════════════════════════════
+const CLOUDINARY_CLOUD_NAME = 'dfiuxdomm';
+const CLOUDINARY_UPLOAD_PRESET = 'educampus_unsigned';
+
+function uploadToCloudinary(file, subFolder, onProgress) {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    formData.append('folder', subFolder);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      try {
+        const res = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && res.secure_url) {
+          resolve({
+            fileUrl: res.secure_url.replace('/upload/', '/upload/fl_attachment/'),
+            viewUrl: res.secure_url,
+            fileId: res.public_id,
+            namaFile: file.name
+          });
+        } else {
+          reject(new Error(res.error?.message || 'Upload gagal'));
+        }
+      } catch (e) {
+        reject(new Error('Respons tidak valid dari Cloudinary'));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Koneksi gagal saat upload'));
+    xhr.send(formData);
+  });
+}
+
+// File di Cloudinary tidak ikut terhapus (tetap ada di cloud, orphan),
+// tapi referensinya di Firestore terhapus sehingga hilang dari tampilan.
+async function deleteFromCloudinary(fileId) {
+  console.log('Referensi file dihapus dari database:', fileId);
+}
+
+window._uploadToDrive = uploadToCloudinary;
+window._deleteFromDrive = deleteFromCloudinary;
+
+    let user = null, config = {}, _prt = null;
+    let _unsubNotif = null;
+    let authRole = 'mahasiswa', showReg = false;
+    let _quill = null;
+
+    // ── Auth observer ─────────────────────────────────────────
+    onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const snap = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (snap.exists()) {
+            user = { id: firebaseUser.uid, ...snap.data() };
+            startApp(user);
+          } else { await signOut(auth); showLogin(); }
+        } catch(e) { console.error('Auth error:', e); showLogin(); }
+      } else { user = null; showLogin(); }
+    });
+
+    function showLogin() {
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('screen-login').style.display = 'flex';
+    }
+
+    async function startApp(u) {
+      user = u;
+      document.getElementById('screen-login').style.display = 'none';
+      const initials = (u.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+      document.getElementById('sbAv').textContent = initials;
+      document.getElementById('sbName').textContent = u.nama;
+      document.getElementById('sbRole').textContent = u.role === 'dosen' ? 'Dosen' : 'NIM ' + (u.nim||'-');
+      try { const s = await getDoc(doc(db,'config','appConfig')); if(s.exists()) config = s.data(); } catch(e) {}
+      buildNav();
+      document.getElementById('app').style.display = 'flex';
+      go('dashboard');
+    }
+
+    function buildNav() {
+      const dsn = [
+        {p:'dashboard',i:'grid',l:'Dashboard'},
+        {p:'pertemuan',i:'calendar',l:'Pertemuan'},
+        {p:'mahasiswa',i:'users',l:'Mahasiswa'},
+        {p:'nilai_dsn',i:'edit',l:'Input Nilai'},
+        {p:'notifikasi',i:'bell',l:'Notifikasi'},
+        {p:'profil',i:'user',l:'Profil'},
+      ];
+      const mhs = [
+        {p:'dashboard',i:'grid',l:'Dashboard'},
+        {p:'pertemuan',i:'calendar',l:'Pertemuan'},
+        {p:'absensi_mhs',i:'check-square',l:'Absensi'},
+        {p:'nilai_mhs',i:'bar-chart-2',l:'Nilai'},
+        {p:'notifikasi',i:'bell',l:'Notifikasi'},
+        {p:'profil',i:'user',l:'Profil'},
+      ];
+      const nav = user.role === 'dosen' ? dsn : mhs;
+
+      document.getElementById('navMenu').innerHTML =
+        nav.map(n=>`
+          <div class="nav-item" id="nav-${n.p}" onclick="go('${n.p}');closeSidebar()">
+            <span class="nav-ico">${svgIcon(n.i)}</span>
+            <span class="nav-lbl">${n.l}</span>
+          </div>`).join('') +
+        `<div class="nav-item nav-logout" onclick="doLogout()">
+          <span class="nav-ico">${svgIcon('log-out')}</span>
+          <span class="nav-lbl">Keluar</span>
+        </div>`;
+
+      const bnKeys = user.role==='dosen'
+        ? ['dashboard','pertemuan','nilai_dsn','notifikasi']
+        : ['dashboard','pertemuan','absensi_mhs','nilai_mhs'];
+      const bnItems = nav.filter(n=>bnKeys.includes(n.p));
+      document.getElementById('bottomNav').innerHTML =
+        `<div class="bn-items">
+          ${bnItems.map(n=>`
+            <div class="bn-item" id="bn-${n.p}" onclick="go('${n.p}')">
+              <div class="bn-ico">${svgIcon(n.i)}</div>
+              <div>${n.l}</div>
+            </div>`).join('')}
+          <div class="bn-item" onclick="doLogout()">
+            <div class="bn-ico">${svgIcon('log-out')}</div>
+            <div>Keluar</div>
+          </div>
+        </div>`;
+    }
+
+    function svgIcon(name) {
+      const icons = {
+        'grid': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`,
+        'calendar': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,
+        'users': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+        'edit': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+        'bell': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
+        'user': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+        'check-square': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
+        'bar-chart-2': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+        'log-out': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`,
+        'upload': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>`,
+        'file-text': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
+        'trash': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`,
+        'download': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>`,
+        'book-open': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
+        'arrow-left': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`,
+        'menu': `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`,
+        'plus': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+        'clock': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+        'check': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`,
+        'x': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+        'search': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+        'award': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>`,
+        'help-circle': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+        'drive': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2z"/><path d="M2 19h20"/><path d="M12 2L6 19"/></svg>`,
+      };
+      return icons[name] || '';
+    }
+    window.svgIcon = svgIcon;
+
+    const TITLES = {
+      dashboard:'Dashboard', pertemuan:'Pertemuan', mahasiswa:'Data Mahasiswa',
+      nilai_dsn:'Input Nilai', notifikasi:'Notifikasi', profil:'Profil Saya',
+      absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya',
+    };
+
+    window.go = function(page, params={}) {
+      document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('on'));
+      document.querySelectorAll('.bn-item').forEach(n=>n.classList.remove('on'));
+      document.getElementById('nav-'+page)?.classList.add('on');
+      document.getElementById('bn-'+page)?.classList.add('on');
+      document.getElementById('pageTitle').textContent = TITLES[page]||page;
+      document.getElementById('topActions').innerHTML = '';
+      setContent('<div class="loading"><div class="spin"></div><span>Memuat data...</span></div>');
+      const map = {
+        dashboard:renderDashboard, pertemuan:renderPertemuan, mahasiswa:renderMahasiswa,
+        nilai_dsn:renderNilaiDsn, notifikasi:renderNotifikasi, profil:renderProfil,
+        absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs
+      };
+      if (map[page]) {
+        Promise.resolve(map[page](params)).catch(e=>{
+          console.error('Gagal render halaman '+page+':', e);
+          setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat halaman</h3><p>${e.message||e}</p></div>`);
+        });
+      }
+      else setContent('<div class="empty"><div class="empty-ico">🚧</div><h3>Segera Hadir</h3><p>Fitur ini sedang dalam pengembangan.</p></div>');
+      document.getElementById('content').scrollTop = 0;
+    };
+
+    function setContent(h) { document.getElementById('content').innerHTML = h; }
+    window.openSidebar = ()=>{ document.getElementById('sidebar').classList.add('open'); document.getElementById('sbOverlay').classList.add('show'); document.body.style.overflow='hidden'; };
+    window.closeSidebar = ()=>{ document.getElementById('sidebar').classList.remove('open'); document.getElementById('sbOverlay').classList.remove('show'); document.body.style.overflow=''; };
+
+    // ── AUTH ──────────────────────────────────────────────────
+    window.setRole = (r)=>{
+      authRole=r;
+      document.getElementById('tabM').classList.toggle('on',r==='mahasiswa');
+      document.getElementById('tabD').classList.toggle('on',r==='dosen');
+      document.getElementById('switchLink').style.display=r==='dosen'?'none':'block';
+      document.getElementById('dosenInfo').style.display=r==='dosen'?'block':'none';
+      if(r==='dosen'&&showReg){showReg=false;document.getElementById('fLogin').style.display='block';document.getElementById('fReg').style.display='none';}
+      clearMsg();
+    };
+    window.toggleReg=()=>{ if(authRole==='dosen')return; showReg=!showReg; document.getElementById('fLogin').style.display=showReg?'none':'block'; document.getElementById('fReg').style.display=showReg?'block':'none'; clearMsg(); };
+    function clearMsg(){ ['authErr','authOk'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; }); }
+    window.doLogin=async()=>{
+      clearMsg();
+      const email=document.getElementById('lEmail').value.trim(), pw=document.getElementById('lPass').value;
+      if(!email||!pw) return showErr('Isi email dan password');
+      const btn=document.getElementById('loginBtn'); btn.disabled=true; btn.textContent='Masuk...';
+      try { await signInWithEmailAndPassword(auth,email,pw); }
+      catch(e) { showErr('Login gagal: '+(e.code==='auth/invalid-credential'?'Email atau password salah':e.message)); btn.disabled=false; btn.textContent='Masuk'; }
+    };
+    window.doRegister=async()=>{
+      clearMsg();
+      const nama=v('rNama'),nim=v('rNim'),email=v('rEmail'),pw=v('rPass'),sem=v('rSem'),prodi=v('rProdi');
+      if(!nama||!nim||!email||!pw) return showErr('Semua field wajib diisi');
+      if(pw.length<6) return showErr('Password minimal 6 karakter');
+      try {
+        const cred=await createUserWithEmailAndPassword(auth,email,pw);
+        await setDoc(doc(db,'users',cred.user.uid),{nama,nim,email,role:'mahasiswa',semester:parseInt(sem)||1,prodi,createdAt:new Date()});
+        showOk('Akun berhasil dibuat! Silakan login.'); toggleReg();
+      } catch(e) { showErr('Gagal: '+e.message); }
+    };
+    window.doLogout=async()=>{ if(_unsubNotif){_unsubNotif();_unsubNotif=null;} await signOut(auth); };
+    function showErr(m){ const e=document.getElementById('authErr'); e.textContent=m; e.style.display='flex'; }
+    function showOk(m){ const e=document.getElementById('authOk'); e.textContent=m; e.style.display='flex'; }
+
+    // ── DASHBOARD ─────────────────────────────────────────────
+    async function renderDashboard(){
+      const isDsn=user.role==='dosen';
+      const greeting = getGreeting();
+      if(isDsn){
+        const [mhsSnap, prtSnap] = await Promise.all([
+          getDocs(query(collection(db,'users'),where('role','==','mahasiswa'))),
+          getDocs(collection(db,'pertemuan'))
+        ]);
+        setContent(`
+          <div class="dash-hero">
+            <div class="dash-greet">${greeting}</div>
+            <div class="dash-name">${user.nama}</div>
+            <div class="dash-sub">${config.NAMA_MATKUL||'EduCampus'} · ${config.SKS||0} SKS</div>
+          </div>
+          <div class="stats-grid">
+            <div class="stat-card" style="--c:#4f46e5">
+              <div class="stat-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('users')}</div>
+              <div class="stat-val">${mhsSnap.size}</div>
+              <div class="stat-lbl">Mahasiswa</div>
+            </div>
+            <div class="stat-card" style="--c:#059669">
+              <div class="stat-ico" style="background:#ecfdf5;color:#059669">${svgIcon('calendar')}</div>
+              <div class="stat-val">${prtSnap.size}<span style="font-size:14px;font-weight:500;color:var(--muted)">/16</span></div>
+              <div class="stat-lbl">Pertemuan</div>
+            </div>
+            <div class="stat-card" style="--c:#d97706">
+              <div class="stat-ico" style="background:#fffbeb;color:#d97706">${svgIcon('bell')}</div>
+              <div class="stat-val" style="font-size:14px">${config.JADWAL||'-'}</div>
+              <div class="stat-lbl">Jadwal</div>
+            </div>
+            <div class="stat-card" style="--c:#7c3aed">
+              <div class="stat-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('edit')}</div>
+              <div class="stat-val" style="font-size:13px">${config.RUANG||'-'}</div>
+              <div class="stat-lbl">Ruang</div>
+            </div>
+          </div>
+          <div class="quick-actions">
+  <div class="section-title">Aksi Cepat</div>
+  <div class="qa-grid">
+    <div class="qa-card" onclick="go('pertemuan')">
+      <div class="qa-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('calendar')}</div>
+      <div>Kelola Pertemuan</div>
+    </div>
+    <div class="qa-card" onclick="go('mahasiswa')">
+      <div class="qa-ico" style="background:#ecfdf5;color:#059669">${svgIcon('users')}</div>
+      <div>Data Mahasiswa</div>
+    </div>
+    <div class="qa-card" onclick="go('nilai_dsn')">
+      <div class="qa-ico" style="background:#fffbeb;color:#d97706">${svgIcon('edit')}</div>
+      <div>Input Nilai</div>
+    </div>
+    <div class="qa-card" onclick="go('notifikasi')">
+      <div class="qa-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('bell')}</div>
+      <div>Notifikasi</div>
+    </div>
+  </div>
+</div>`);
+      } else {
+        const [absSnap, nilaiSnap] = await Promise.all([
+          getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id))),
+          getDoc(doc(db,'nilai_akhir',user.id))
+        ]);
+        const hadir=absSnap.docs.filter(d=>d.data().status==='hadir').length;
+        const n=nilaiSnap.exists()?nilaiSnap.data():{};
+        setContent(`
+          <div class="dash-hero">
+            <div class="dash-greet">${greeting}</div>
+            <div class="dash-name">${user.nama}</div>
+            <div class="dash-sub">NIM ${user.nim||'-'} · ${user.prodi||''}</div>
+          </div>
+          <div class="stats-grid">
+            <div class="stat-card" style="--c:#4f46e5">
+              <div class="stat-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('check-square')}</div>
+              <div class="stat-val">${hadir}<span style="font-size:14px;font-weight:500;color:var(--muted)">/${absSnap.size}</span></div>
+              <div class="stat-lbl">Hadir</div>
+            </div>
+            <div class="stat-card" style="--c:#059669">
+              <div class="stat-ico" style="background:#ecfdf5;color:#059669">${svgIcon('bar-chart-2')}</div>
+              <div class="stat-val">${n.nilaiAkhir||'-'}</div>
+              <div class="stat-lbl">Nilai Akhir</div>
+            </div>
+            <div class="stat-card" style="--c:#d97706">
+              <div class="stat-ico" style="background:#fffbeb;color:#d97706">${svgIcon('book-open')}</div>
+              <div class="stat-val">16</div>
+              <div class="stat-lbl">Total Materi</div>
+            </div>
+            <div class="stat-card" style="--c:#7c3aed">
+              <div class="stat-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('edit')}</div>
+              <div class="stat-val">-</div>
+              <div class="stat-lbl">Tugas</div>
+            </div>
+          </div>
+          <div class="quick-actions">
+            <div class="section-title">Aksi Cepat</div>
+            <div class="qa-grid">
+              <div class="qa-card" onclick="go('pertemuan')"><div class="qa-ico" style="background:#eef2ff;color:#4f46e5">${svgIcon('calendar')}</div><div>Materi Kuliah</div></div>
+              <div class="qa-card" onclick="go('absensi_mhs')"><div class="qa-ico" style="background:#ecfdf5;color:#059669">${svgIcon('check-square')}</div><div>Absensi Saya</div></div>
+              <div class="qa-card" onclick="go('nilai_mhs')"><div class="qa-ico" style="background:#fffbeb;color:#d97706">${svgIcon('bar-chart-2')}</div><div>Nilai Saya</div></div>
+              <div class="qa-card" onclick="go('notifikasi')"><div class="qa-ico" style="background:#f5f3ff;color:#7c3aed">${svgIcon('bell')}</div><div>Notifikasi</div></div>
+            </div>
+          </div>`);
+      }
+    }
+
+    function getGreeting(){
+      const h=new Date().getHours();
+      if(h<11)return'Selamat Pagi 🌤';
+      if(h<15)return'Selamat Siang ☀️';
+      if(h<18)return'Selamat Sore 🌇';
+      return'Selamat Malam 🌙';
+    }
+
+    // ── PERTEMUAN ────────────────────────────────────────────
+    async function renderPertemuan(){
+      const isDsn = user.role === 'dosen';
+      const snap=await getDocs(collection(db,'pertemuan'));
+      const prts=[];snap.forEach(d=>prts.push({id:d.id,...d.data()}));
+      prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
+      if(prts.length===0){
+        setContent(`<div class="empty"><div class="empty-ico">📅</div><h3>Belum ada pertemuan</h3><p>${isDsn?'Tambahkan pertemuan melalui Firebase Console.':'Belum ada materi yang tersedia.'}</p></div>`);
+        return;
+      }
+      setContent(`
+        <div class="section-title" style="margin-bottom:12px">${prts.length} Pertemuan tersedia</div>
+        <div class="prt-grid">${prts.map(p=>`
+          <div class="prt-card" onclick="bukaPrt('${p.id}')">
+            <div class="prt-num">Pertemuan ${p.pertemuanKe}</div>
+            <div class="prt-topik">${p.topik||'—'}</div>
+            <div class="prt-arrow">${svgIcon('arrow-left')}</div>
+          </div>`).join('')}
+        </div>`);
+    }
+
+    window.bukaPrt=async(prtId)=>{
+      const snap=await getDoc(doc(db,'pertemuan',prtId));
+      if(snap.exists()){_prt={id:prtId,...snap.data()};renderPrtDetail(_prt,'materi');}
+    };
+
+    function renderPrtDetail(p,tab){
+      const tabs=[
+        {k:'materi',l:'Materi'},
+        {k:'tugas',l:'Tugas'},
+        {k:'kuis',l:'Kuis'},
+        {k:'absensi',l:'Absensi'},
+      ];
+      setContent(`
+        <div class="prt-detail-header">
+          <button class="btn-back" onclick="go('pertemuan')">${svgIcon('arrow-left')} Kembali</button>
+          <div>
+            <div class="prt-detail-badge">Pertemuan ${p.pertemuanKe}</div>
+            <div class="prt-detail-title">${p.topik||''}</div>
+          </div>
+        </div>
+        <div class="dtabs">${tabs.map(t=>`<div class="dtab${t.k===tab?' on':''}" data-tab="${t.k}" onclick="loadTab('${t.k}')">${t.l}</div>`).join('')}</div>
+        <div id="tabContent"><div class="loading"><div class="spin"></div><span>Memuat...</span></div></div>`);
+      loadTab(tab);
+    }
+
+    window.loadTab=async(tab)=>{
+      if(!_prt)return;
+      document.querySelectorAll('.dtab').forEach(t=>t.classList.toggle('on', t.dataset.tab===tab));
+      const tc=document.getElementById('tabContent');
+      if(!tc)return;
+      if(tab==='materi') await renderMateriTab();
+      else if(tab==='tugas') await renderTugasTab();
+      else if(tab==='kuis') await renderKuisTab();
+      else if(tab==='absensi') await renderAbsensiTab();
+    };
+
+    // ══════════════════════════════════════════════════
+    // ── MATERI TAB ────────────────────────────────────
+    // ══════════════════════════════════════════════════
+    async function renderMateriTab(){
+      const isDsn = user.role === 'dosen';
+      const tc = document.getElementById('tabContent');
+      if(!tc) return;
+
+      let items = [];
+      try {
+        const snap = await getDocs(collection(db,'pertemuan',_prt.id,'materi'));
+        snap.forEach(d => items.push({id:d.id,...d.data()}));
+        items.sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));
+      } catch(e) {
+        tc.innerHTML=`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat</h3><p>${e.message}</p></div>`;
+        return;
+      }
+
+      let html = `<div class="materi-list" id="materi-list">`;
+      if(items.length === 0){
+        html += `<div class="empty"><div class="empty-ico">📄</div><h3>Belum ada materi</h3><p>${isDsn?'Tambahkan materi di bawah.':'Dosen belum menambahkan materi.'}</p></div>`;
+      } else {
+        items.forEach(m=>{
+          if(m.tipe==='file'){
+            const icon = getFileIcon(m.namaFile||'');
+            html += `
+              <div class="materi-item">
+                <div class="materi-icon-wrap">${icon}</div>
+                <div class="materi-info">
+                  <div class="materi-judul">${m.judul}</div>
+                  <div class="materi-meta">${m.namaFile||''} ${m.ukuran?'· '+m.ukuran:''} · <span style="color:#059669">📁 Google Drive</span></div>
+                </div>
+                <div class="materi-actions">
+                  <a href="${m.fileUrl}" target="_blank" class="btn-action btn-primary">${svgIcon('download')} Unduh</a>
+                  ${m.viewUrl?`<a href="${m.viewUrl}" target="_blank" class="btn-action btn-secondary">👁️ Lihat</a>`:''}
+                  ${isDsn?`<button class="btn-action btn-danger" onclick="hapusMateri('${m.id}','${m.fileId||''}')">${svgIcon('trash')}</button>`:''}
+                </div>
+              </div>`;
+          } else if(m.tipe==='teks'){
+            html += `
+              <div class="materi-item">
+                <div class="materi-icon-wrap">📝</div>
+                <div class="materi-info">
+                  <div class="materi-judul">${m.judul}</div>
+                  <div class="materi-meta">Konten teks</div>
+                </div>
+                <div class="materi-actions">
+                  <button class="btn-action btn-primary" onclick="bacaMateriTeks('${m.id}')">${svgIcon('book-open')} Baca</button>
+                  ${isDsn?`
+                    <button class="btn-action btn-secondary" onclick="editMateriTeks('${m.id}')">${svgIcon('edit')} Edit</button>
+                    <button class="btn-action btn-danger" onclick="hapusMateri('${m.id}','')">${svgIcon('trash')}</button>`:''}
+                </div>
+              </div>`;
+          }
+        });
+      }
+      html += `</div>`;
+
+      if(isDsn){
+        html += `
+          <div class="add-materi-card">
+            <div class="add-materi-title">${svgIcon('plus')} Tambah Materi</div>
+            <div class="tipe-tabs">
+              <div class="tipe-tab on" id="tipeFile" onclick="switchTipe('file')">${svgIcon('upload')} Upload File</div>
+              <div class="tipe-tab" id="tipeTeks" onclick="switchTipe('teks')">${svgIcon('file-text')} Konten Teks</div>
+            </div>
+            <div id="formFile">
+              <input class="inp" id="judulFile" placeholder="Judul materi...">
+              <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-ico">${svgIcon('upload')}</div>
+                <div class="upload-txt">Klik untuk pilih file</div>
+                <div class="upload-sub">PDF, PPT, Gambar, Video — semua format didukung · Tersimpan di Google Drive 📁</div>
+                <input type="file" id="fileInput" style="display:none" accept="*/*" onchange="previewFile(this)">
+              </div>
+              <div id="filePreview" style="display:none" class="file-preview-box"></div>
+              <div id="uploadProgress" style="display:none" class="upload-progress">
+                <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                <div class="progress-txt" id="progressTxt">Mengupload ke Google Drive...</div>
+              </div>
+              <button class="btn-submit" id="submitFileBtn" onclick="uploadMateriFile()">Upload & Simpan ke Drive</button>
+            </div>
+            <div id="formTeks" style="display:none">
+              <input class="inp" id="judulTeks" placeholder="Judul materi...">
+              <div id="quillEditor" style="height:280px"></div>
+              <button class="btn-submit" style="margin-top:12px" onclick="simpanMateriTeks()">Simpan Materi</button>
+            </div>
+          </div>`;
+      }
+
+      tc.innerHTML = html;
+
+      if(isDsn){
+        _quill = new Quill('#quillEditor', {
+          theme: 'snow',
+          placeholder: 'Tulis konten materi di sini...',
+          modules: { toolbar: [
+            [{header:[1,2,3,false]}],
+            ['bold','italic','underline','strike'],
+            [{color:[]},{background:[]}],
+            [{list:'ordered'},{list:'bullet'}],
+            ['blockquote','code-block'],
+            ['link','image'],
+            ['clean']
+          ]}
+        });
+      }
+    }
+
+    function getFileIcon(nama){
+      const ext=(nama.split('.').pop()||'').toLowerCase();
+      if(ext==='pdf') return '📄';
+      if(['ppt','pptx'].includes(ext)) return '📊';
+      if(['jpg','jpeg','png','gif','webp'].includes(ext)) return '🖼️';
+      if(['mp4','mov','avi','mkv'].includes(ext)) return '🎬';
+      if(['doc','docx'].includes(ext)) return '📝';
+      if(['xls','xlsx'].includes(ext)) return '📈';
+      if(['zip','rar'].includes(ext)) return '🗜️';
+      return '📎';
+    }
+
+    window.switchTipe=(tipe)=>{
+      document.getElementById('tipeFile').classList.toggle('on',tipe==='file');
+      document.getElementById('tipeTeks').classList.toggle('on',tipe==='teks');
+      document.getElementById('formFile').style.display=tipe==='file'?'block':'none';
+      document.getElementById('formTeks').style.display=tipe==='teks'?'block':'none';
+    };
+
+    window.previewFile=(input)=>{
+      const file=input.files[0]; if(!file)return;
+      const size=file.size>1024*1024?(file.size/1024/1024).toFixed(1)+' MB':(file.size/1024).toFixed(0)+' KB';
+      const preview=document.getElementById('filePreview');
+      preview.style.display='flex';
+      preview.innerHTML=`<span style="font-size:28px">${getFileIcon(file.name)}</span><div><div style="font-weight:600;font-size:14px">${file.name}</div><div style="font-size:12px;color:var(--muted)">${size}</div></div>`;
+      document.getElementById('uploadArea').style.display='none';
+    };
+
+    // ══ UPLOAD MATERI → GOOGLE DRIVE ══
+    window.uploadMateriFile=async()=>{
+      const judul=document.getElementById('judulFile').value.trim();
+      const fileInput=document.getElementById('fileInput');
+      const file=fileInput.files[0];
+      if(!judul) return toast('⚠️ Isi judul materi dulu');
+      if(!file) return toast('⚠️ Pilih file dulu');
+
+      const size=file.size>1024*1024?(file.size/1024/1024).toFixed(1)+' MB':(file.size/1024).toFixed(0)+' KB';
+      document.getElementById('uploadProgress').style.display='block';
+      document.getElementById('submitFileBtn').disabled=true;
+
+      try {
+        const result = await window._uploadToDrive(file, 'materi_'+_prt.id, (pct)=>{
+          document.getElementById('progressFill').style.width=pct+'%';
+          document.getElementById('progressTxt').textContent=`Mengupload ke Google Drive ${pct}%...`;
+        });
+
+        await addDoc(collection(db,'pertemuan',_prt.id,'materi'),{
+          judul,
+          tipe: 'file',
+          fileUrl: result.fileUrl,
+          viewUrl: result.viewUrl,
+          fileId: result.fileId,         // ID Drive untuk hapus
+          namaFile: file.name,
+          ukuran: size,
+          createdAt: serverTimestamp()
+        });
+
+        toast('✅ Materi berhasil diupload ke Google Drive!');
+        await renderMateriTab();
+      } catch(e) {
+        toast('❌ Upload gagal: '+e.message);
+        document.getElementById('uploadProgress').style.display='none';
+        document.getElementById('submitFileBtn').disabled=false;
+      }
+    };
+
+    window.simpanMateriTeks=async()=>{
+      const judul=document.getElementById('judulTeks').value.trim();
+      if(!judul) return toast('⚠️ Isi judul materi dulu');
+      if(!_quill) return;
+      if(_quill.getText().trim().length===0) return toast('⚠️ Isi konten materi dulu');
+      const konten=_quill.root.innerHTML;
+      await addDoc(collection(db,'pertemuan',_prt.id,'materi'),{
+        judul,tipe:'teks',konten,createdAt:serverTimestamp()
+      });
+      toast('✅ Materi teks tersimpan!');
+      await renderMateriTab();
+    };
+
+    window.bacaMateriTeks=async(materiId)=>{
+      const snap=await getDoc(doc(db,'pertemuan',_prt.id,'materi',materiId));
+      if(!snap.exists())return;
+      const m=snap.data();
+      openModal(m.judul,`<div class="materi-konten ql-editor" style="padding:0;border:none">${m.konten}</div>`);
+    };
+
+    window.editMateriTeks=async(materiId)=>{
+      const snap=await getDoc(doc(db,'pertemuan',_prt.id,'materi',materiId));
+      if(!snap.exists())return;
+      const m=snap.data();
+      openModal('Edit: '+m.judul,`
+        <input class="inp" id="editJudul" value="${m.judul.replace(/"/g,'&quot;')}">
+        <div id="editQuill" style="height:280px"></div>
+        <button class="btn-submit" style="margin-top:12px" onclick="saveEditTeks('${materiId}')">Simpan Perubahan</button>
+      `);
+      setTimeout(()=>{
+        const eq=new Quill('#editQuill',{theme:'snow',modules:{toolbar:[
+          [{header:[1,2,3,false]}],['bold','italic','underline'],
+          [{list:'ordered'},{list:'bullet'}],['link'],['clean']
+        ]}});
+        eq.root.innerHTML=m.konten;
+        window._editQuill=eq;
+      },150);
+    };
+
+    window.saveEditTeks=async(materiId)=>{
+      const judul=document.getElementById('editJudul').value.trim();
+      if(!judul||!window._editQuill)return;
+      await updateDoc(doc(db,'pertemuan',_prt.id,'materi',materiId),{judul,konten:window._editQuill.root.innerHTML});
+      closeModal(); toast('✅ Materi diperbarui!');
+      await renderMateriTab();
+    };
+
+    // ══ HAPUS MATERI → hapus dari Drive juga ══
+    window.hapusMateri=async(materiId, fileId)=>{
+      if(!confirm('Hapus materi ini?'))return;
+      // Hapus dari Google Drive
+      if(fileId) await window._deleteFromDrive(fileId);
+      // Hapus dari Firestore
+      await deleteDoc(doc(db,'pertemuan',_prt.id,'materi',materiId));
+      toast('🗑️ Materi dihapus');
+      await renderMateriTab();
+    };
+
+    // ══════════════════════════════════════════════════
+    // ── TUGAS TAB ─────────────────────────────────────
+    // ══════════════════════════════════════════════════
+    async function renderTugasTab(){
+      const isDsn = user.role === 'dosen';
+      const tc = document.getElementById('tabContent');
+      if(!tc) return;
+
+      let tugasList = [];
+      try {
+        const snap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas'));
+        snap.forEach(d => tugasList.push({id:d.id,...d.data()}));
+        tugasList.sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));
+      } catch(e) {
+        tc.innerHTML=`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat tugas</h3><p>${e.message}</p></div>`;
+        return;
+      }
+
+      let html = '';
+
+      if(isDsn){
+        if(tugasList.length === 0){
+          html += `<div class="empty" style="padding:40px 20px"><div class="empty-ico">📝</div><h3>Belum ada tugas</h3><p>Tambahkan tugas pertama untuk pertemuan ini.</p></div>`;
+        } else {
+          html += `<div class="tugas-list">`;
+          for(const t of tugasList){
+            let jumlahKumpul = 0;
+            try {
+              const kumpulSnap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas',t.id,'pengumpulan'));
+              jumlahKumpul = kumpulSnap.size;
+            } catch(e){}
+            const batas = t.batasWaktu ? new Date(t.batasWaktu).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Tidak ada batas';
+            html += `
+              <div class="tugas-card">
+                <div class="tugas-card-header">
+                  <div>
+                    <div class="tugas-judul">${t.judul}</div>
+                    <div class="tugas-meta">${svgIcon('clock')} Batas: ${batas}</div>
+                  </div>
+                  <div style="display:flex;gap:6px;align-items:flex-start">
+                    <span class="badge badge-blue">${jumlahKumpul} Terkumpul</span>
+                    <button class="btn-action btn-danger" onclick="hapusTugas('${t.id}')">${svgIcon('trash')}</button>
+                  </div>
+                </div>
+                <div class="tugas-deskripsi">${t.deskripsi||''}</div>
+                <div style="margin-top:10px">
+                  <button class="btn-action btn-secondary" onclick="lihatPengumpulan('${t.id}','${t.judul.replace(/'/g,"\\'")}')">📋 Lihat Pengumpulan (${jumlahKumpul})</button>
+                </div>
+              </div>`;
+          }
+          html += `</div>`;
+        }
+
+        html += `
+          <div class="add-materi-card">
+            <div class="add-materi-title">${svgIcon('plus')} Buat Tugas Baru</div>
+            <div>
+              <input class="inp" id="tugasJudul" placeholder="Judul tugas...">
+              <textarea class="inp" id="tugasDeskripsi" placeholder="Deskripsi / instruksi tugas..." style="resize:vertical;min-height:100px"></textarea>
+              <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Batas Waktu Pengumpulan</label>
+              <input class="inp" type="datetime-local" id="tugasBatas">
+              <button class="btn-submit" onclick="simpanTugas()">Buat Tugas</button>
+            </div>
+          </div>`;
+      } else {
+        // Mahasiswa
+        if(tugasList.length === 0){
+          html += `<div class="empty"><div class="empty-ico">📝</div><h3>Belum ada tugas</h3><p>Dosen belum memberikan tugas untuk pertemuan ini.</p></div>`;
+        } else {
+          html += `<div class="tugas-list">`;
+          for(const t of tugasList){
+            let sudahKumpul = false;
+            let kumpulData = null;
+            try {
+              const kSnap = await getDoc(doc(db,'pertemuan',_prt.id,'tugas',t.id,'pengumpulan',user.id));
+              if(kSnap.exists()){ sudahKumpul = true; kumpulData = kSnap.data(); }
+            } catch(e){}
+            const batas = t.batasWaktu ? new Date(t.batasWaktu) : null;
+            const terlambat = batas && new Date() > batas;
+            const batasStr = batas ? batas.toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Tidak ada batas';
+
+            // bisaEdit: sudah kumpul DAN belum melewati batas waktu
+            const bisaEdit = sudahKumpul && !terlambat;
+            const catatanLama = (kumpulData?.catatan || '').replace(/"/g,'&quot;');
+            const namaFileLama = kumpulData?.namaFile || '';
+            const fileUrlLama = (kumpulData?.fileUrl || '').replace(/'/g,"\\'");
+            const fileIdLama = (kumpulData?.fileId || '').replace(/'/g,"\\'");
+            const viewUrlLama = (kumpulData?.viewUrl || '').replace(/'/g,"\\'");
+            const namaFileLamaEsc = namaFileLama.replace(/'/g,"\\'");
+
+            html += `
+              <div class="tugas-card">
+                <div class="tugas-card-header">
+                  <div>
+                    <div class="tugas-judul">${t.judul}</div>
+                    <div class="tugas-meta">${svgIcon('clock')} Batas: ${batasStr}</div>
+                  </div>
+                  ${sudahKumpul
+                    ? `<span class="badge badge-green">✅ Terkumpul</span>`
+                    : terlambat
+                      ? `<span class="badge badge-red">⏰ Terlambat</span>`
+                      : `<span class="badge badge-yellow">⏳ Belum Kumpul</span>`}
+                </div>
+                <div class="tugas-deskripsi">${t.deskripsi||''}</div>
+
+                ${sudahKumpul ? `
+                  <div class="kumpul-info" id="kumpulInfo_${t.id}">
+                    <div style="font-size:12px;color:var(--g);font-weight:600">✅ Tugas sudah dikumpulkan</div>
+                    ${kumpulData?.namaFile?`<div style="font-size:12px;color:var(--muted);margin-top:4px">📎 ${kumpulData.namaFile}</div>`:''}
+                    ${kumpulData?.fileUrl?`<a href="${kumpulData.fileUrl}" target="_blank" class="btn-action btn-primary" style="margin-top:8px;display:inline-flex">${svgIcon('download')} Lihat File Saya</a>`:''}
+                    ${kumpulData?.catatan?`<div style="font-size:12px;color:var(--ink2);margin-top:4px">"${kumpulData.catatan}"</div>`:''}
+                    ${bisaEdit ? `
+                      <div>
+                        <button class="btn-action btn-secondary" style="margin-top:10px" onclick="toggleEditTugas('${t.id}')">
+                          ${svgIcon('edit')} Edit Jawaban
+                        </button>
+                        <div style="font-size:11px;color:var(--muted);margin-top:6px">Kamu masih bisa mengubah jawaban sebelum batas waktu berakhir.</div>
+                      </div>
+                    ` : `
+                      <div style="font-size:11px;color:var(--muted);margin-top:8px">Waktu pengumpulan telah berakhir, jawaban tidak bisa diubah lagi.</div>
+                    `}
+                  </div>
+                ` : ''}
+
+                <div class="kumpul-form" id="kumpulForm_${t.id}" style="${sudahKumpul ? 'display:none' : ''}">
+                  <textarea class="inp" id="kumpulCatatan_${t.id}" placeholder="Catatan / komentar (opsional)..." style="resize:vertical;min-height:60px;margin-top:10px">${sudahKumpul ? catatanLama : ''}</textarea>
+                  <div style="margin-bottom:10px">
+                    <label class="upload-area" style="padding:16px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center" for="kumpulFile_${t.id}">
+                      ${svgIcon('upload')}<span id="kumpulFileLabel_${t.id}">${namaFileLama ? '📎 '+namaFileLama+' (klik untuk ganti file)' : 'Lampirkan file tugas (opsional)'}</span>
+                      <input type="file" id="kumpulFile_${t.id}" style="display:none" onchange="previewKumpulFile('${t.id}',this)">
+                    </label>
+                  </div>
+                  <div id="kumpulProgress_${t.id}" style="display:none" class="upload-progress">
+                    <div class="progress-bar"><div class="progress-fill" id="kumpulProgressFill_${t.id}"></div></div>
+                    <div class="progress-txt" id="kumpulProgressTxt_${t.id}">Mengupload...</div>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <button class="btn-submit" ${terlambat?'style="background:#d97706"':''} onclick="kumpulTugas('${t.id}','${fileUrlLama}','${namaFileLamaEsc}','${fileIdLama}','${viewUrlLama}')">
+                      ${sudahKumpul ? '💾 Simpan Perubahan' : (terlambat ? '⏰ Kumpul (Terlambat)' : '📤 Kumpulkan Tugas')}
+                    </button>
+                    ${sudahKumpul ? `<button class="btn-action btn-secondary" onclick="toggleEditTugas('${t.id}')">Batal</button>` : ''}
+                  </div>
+                </div>
+              </div>`;
+          }
+          html += `</div>`;
+        }
+      }
+
+      tc.innerHTML = html;
+    }
+
+    window.simpanTugas = async()=>{
+      const judul = document.getElementById('tugasJudul').value.trim();
+      const deskripsi = document.getElementById('tugasDeskripsi').value.trim();
+      const batas = document.getElementById('tugasBatas').value;
+      if(!judul) return toast('⚠️ Isi judul tugas dulu');
+      await addDoc(collection(db,'pertemuan',_prt.id,'tugas'),{
+        judul, deskripsi, batasWaktu: batas||null, createdAt: serverTimestamp()
+      });
+      toast('✅ Tugas berhasil dibuat!');
+      await renderTugasTab();
+    };
+
+    window.hapusTugas = async(tugasId)=>{
+      if(!confirm('Hapus tugas ini?')) return;
+      await deleteDoc(doc(db,'pertemuan',_prt.id,'tugas',tugasId));
+      toast('🗑️ Tugas dihapus');
+      await renderTugasTab();
+    };
+
+    window.previewKumpulFile = (tugasId, input)=>{
+      const file = input.files[0]; if(!file) return;
+      const label = document.getElementById('kumpulFileLabel_'+tugasId);
+      if(label) label.textContent = '📎 ' + file.name;
+    };
+
+    // Toggle antara tampilan "info pengumpulan" dan "form edit"
+    window.toggleEditTugas = (tugasId)=>{
+      const info = document.getElementById('kumpulInfo_'+tugasId);
+      const form = document.getElementById('kumpulForm_'+tugasId);
+      if(!form) return;
+      const showForm = form.style.display === 'none';
+      form.style.display = showForm ? 'block' : 'none';
+      if(info) info.style.display = showForm ? 'none' : 'block';
+    };
+
+    // ══ KUMPUL / EDIT TUGAS → Upload ke Cloudinary ══
+    // oldFileUrl/oldNamaFile/oldFileId/oldViewUrl: data file yang sudah ada sebelumnya (untuk edit),
+    // dikirim kosong ('') saat submit pertama kali.
+    window.kumpulTugas = async(tugasId, oldFileUrl, oldNamaFile, oldFileId, oldViewUrl) => {
+      const catatanEl = document.getElementById('kumpulCatatan_' + tugasId);
+      const fileInput = document.getElementById('kumpulFile_' + tugasId);
+
+      if (!catatanEl) {
+        toast('❌ Form tidak ditemukan, coba refresh halaman');
+        return;
+      }
+
+      const catatan = catatanEl.value.trim() || '';
+      const file = fileInput?.files[0];
+
+      const doSave = async(fileUrl, namaFile, fileId, viewUrl) => {
+        await setDoc(doc(db, 'pertemuan', _prt.id, 'tugas', tugasId, 'pengumpulan', user.id), {
+          mahasiswaId: user.id, nama: user.nama, nim: user.nim || '-',
+          catatan,
+          fileUrl: fileUrl || null,
+          namaFile: namaFile || null,
+          fileId: fileId || null,
+          viewUrl: viewUrl || null,
+          waktuKumpul: serverTimestamp()
+        });
+        toast('✅ Jawaban tersimpan!');
+        await renderTugasTab();
+      };
+
+      if (file) {
+        // Ada file baru dipilih -> upload, gantikan file lama (file lama jadi orphan di Cloudinary)
+        const prog = document.getElementById('kumpulProgress_' + tugasId);
+        const fill = document.getElementById('kumpulProgressFill_' + tugasId);
+        const txt = document.getElementById('kumpulProgressTxt_' + tugasId);
+
+        const submitBtn = document.querySelector(`[onclick^="kumpulTugas('${tugasId}'"]`);
+        if (submitBtn) submitBtn.disabled = true;
+
+        if (prog) prog.style.display = 'block';
+
+        try {
+          const subFolder = 'tugas_' + _prt.id + '_' + tugasId;
+          const result = await window._uploadToDrive(file, subFolder, (pct) => {
+            if (fill) fill.style.width = pct + '%';
+            if (txt) txt.textContent = 'Mengupload ' + pct + '%...';
+          });
+          await doSave(result.fileUrl, file.name, result.fileId, result.viewUrl);
+        } catch(e) {
+          toast('❌ Upload gagal: ' + e.message);
+          if (prog) prog.style.display = 'none';
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      } else {
+        // Tidak pilih file baru -> pertahankan file lama (kalau sedang edit) atau null (submit pertama kali)
+        await doSave(oldFileUrl || null, oldNamaFile || null, oldFileId || null, oldViewUrl || null);
+      }
+    };
+
+    window.lihatPengumpulan = async(tugasId, judulTugas)=>{
+      const snap = await getDocs(collection(db,'pertemuan',_prt.id,'tugas',tugasId,'pengumpulan'));
+      const list = [];
+      snap.forEach(d => list.push(d.data()));
+      let html = '';
+      if(list.length===0){
+        html = `<div class="empty" style="padding:30px"><div class="empty-ico">📭</div><h3>Belum ada yang mengumpulkan</h3></div>`;
+      } else {
+        html = `<div style="font-size:13px;color:var(--muted);margin-bottom:12px">${list.length} mahasiswa telah mengumpulkan</div>`;
+        html += list.map(k=>{
+          const waktu = k.waktuKumpul?.toDate ? k.waktuKumpul.toDate().toLocaleDateString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '-';
+          return `<div class="kumpul-item">
+            <div style="font-weight:600;font-size:14px">${k.nama}</div>
+            <div style="font-size:12px;color:var(--muted)">NIM: ${k.nim||'-'} · ${waktu}</div>
+            ${k.catatan?`<div style="font-size:13px;color:var(--ink2);margin-top:4px;padding:8px;background:var(--bg);border-radius:6px">"${k.catatan}"</div>`:''}
+            ${k.fileUrl?`
+              <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+                <a href="${k.fileUrl}" target="_blank" class="btn-action btn-primary">${svgIcon('download')} ${k.namaFile||'Unduh File'}</a>
+                ${k.viewUrl?`<a href="${k.viewUrl}" target="_blank" class="btn-action btn-secondary">👁️ Lihat di Drive</a>`:''}
+              </div>`:''}
+          </div>`;
+        }).join('');
+      }
+      openModal('Pengumpulan: '+judulTugas, html);
+    };
+
+    // ══════════════════════════════════════════════════
+    // ── KUIS TAB ──────────────────────────────────────
+    // ══════════════════════════════════════════════════
+    async function renderKuisTab(){
+      const isDsn = user.role === 'dosen';
+      const tc = document.getElementById('tabContent');
+      if(!tc) return;
+
+      let kuisList = [];
+      try {
+        const snap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis'));
+        snap.forEach(d => kuisList.push({id:d.id,...d.data()}));
+        kuisList.sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));
+      } catch(e) {
+        tc.innerHTML=`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat kuis</h3><p>${e.message}</p></div>`;
+        return;
+      }
+
+      let html = '';
+
+      if(isDsn){
+        if(kuisList.length===0){
+          html += `<div class="empty" style="padding:40px 20px"><div class="empty-ico">❓</div><h3>Belum ada kuis</h3><p>Buat kuis pilihan ganda untuk mahasiswa.</p></div>`;
+        } else {
+          html += `<div class="tugas-list">`;
+          for(const k of kuisList){
+            const pertanyaanSnap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'pertanyaan'));
+            const jawabanSnap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'jawaban'));
+            html += `
+              <div class="tugas-card">
+                <div class="tugas-card-header">
+                  <div>
+                    <div class="tugas-judul">${k.judul}</div>
+                    <div class="tugas-meta">${svgIcon('help-circle')} ${pertanyaanSnap.size} soal · ${svgIcon('users')} ${jawabanSnap.size} peserta</div>
+                  </div>
+                  <div style="display:flex;gap:6px;align-items:flex-start">
+                    <span class="badge badge-blue">${k.durasi||0} menit</span>
+                    <button class="btn-action btn-danger" onclick="hapusKuis('${k.id}')">${svgIcon('trash')}</button>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+                  <button class="btn-action btn-secondary" onclick="lihatHasilKuis('${k.id}','${k.judul.replace(/'/g,"\\'")}')">📊 Lihat Hasil (${jawabanSnap.size})</button>
+                </div>
+              </div>`;
+          }
+          html += `</div>`;
+        }
+
+        html += `
+          <div class="add-materi-card">
+            <div class="add-materi-title">${svgIcon('plus')} Buat Kuis Baru</div>
+            <div>
+              <input class="inp" id="kuisJudul" placeholder="Judul kuis...">
+              <input class="inp" type="number" id="kuisDurasi" placeholder="Durasi (menit), contoh: 30" min="1" max="180">
+              <div style="font-size:13px;font-weight:600;color:var(--ink2);margin-bottom:10px">Pertanyaan</div>
+              <div id="daftarPertanyaan"></div>
+              <button class="btn-action btn-secondary" style="margin-bottom:12px;width:100%;justify-content:center" onclick="tambahPertanyaan()">
+                ${svgIcon('plus')} Tambah Soal
+              </button>
+              <button class="btn-submit" onclick="simpanKuis()">Simpan Kuis</button>
+            </div>
+          </div>`;
+        tc.innerHTML = html;
+        window._pertanyaan = [];
+        tambahPertanyaan();
+      } else {
+        if(kuisList.length===0){
+          html += `<div class="empty"><div class="empty-ico">❓</div><h3>Belum ada kuis</h3><p>Dosen belum membuat kuis untuk pertemuan ini.</p></div>`;
+          tc.innerHTML = html; return;
+        }
+
+        html += `<div class="tugas-list">`;
+        for(const k of kuisList){
+          let sudahKerjakan = false;
+          let hasilData = null;
+          try {
+            const hSnap = await getDoc(doc(db,'pertemuan',_prt.id,'kuis',k.id,'jawaban',user.id));
+            if(hSnap.exists()){ sudahKerjakan=true; hasilData=hSnap.data(); }
+          } catch(e){}
+          const pertSnap = await getDocs(collection(db,'pertemuan',_prt.id,'kuis',k.id,'pertanyaan'));
+          html += `
+            <div class="tugas-card">
+              <div class="tugas-card-header">
+                <div>
+                  <div class="tugas-judul">${k.judul}</div>
+                  <div class="tugas-meta">${svgIcon('help-circle')} ${pertSnap.size} soal · ⏱️ ${k.durasi||0} menit</div>
+                </div>
+                ${sudahKerjakan
+                  ? `<span class="badge badge-green">✅ Selesai</span>`
+                  : `<span class="badge badge-yellow">⏳ Belum dikerjakan</span>`}
+              </div>
+              ${sudahKerjakan
+                ? `<div class="kumpul-info">
+                    <div style="font-size:14px;font-weight:700;color:var(--p)">Nilai: ${hasilData?.nilai||0} / ${hasilData?.total||0}</div>
+                    <div style="font-size:12px;color:var(--muted);margin-top:2px">Benar: ${hasilData?.benar||0} dari ${hasilData?.total||0} soal</div>
+                  </div>`
+                : `<button class="btn-submit" style="margin-top:10px" onclick="mulaiKuis('${k.id}','${k.judul.replace(/'/g,"\\'")}',${k.durasi||0})">Mulai Kerjakan</button>`
+              }
+            </div>`;
+        }
+        html += `</div>`;
+        tc.innerHTML = html;
+      }
+    }
+
+    window._pertanyaan = [];
+    window.tambahPertanyaan = ()=>{
+      const idx = window._pertanyaan.length;
+      window._pertanyaan.push({soal:'',pilihan:['','','',''],jawaban:0});
+      const container = document.getElementById('daftarPertanyaan');
+      if(!container) return;
+      const div = document.createElement('div');
+      div.className = 'soal-card';
+      div.id = 'soal_'+idx;
+      div.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:700;color:var(--p)">Soal ${idx+1}</div>
+          <button class="btn-action btn-danger" onclick="hapusPertanyaan(${idx})" style="padding:4px 8px">${svgIcon('trash')}</button>
+        </div>
+        <textarea class="inp" placeholder="Tulis pertanyaan..." style="resize:vertical;min-height:60px;margin-bottom:8px" oninput="updateSoal(${idx},'soal',this.value)"></textarea>
+        <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px">PILIHAN JAWABAN (klik radio = jawaban benar)</div>
+        ${['A','B','C','D'].map((l,i)=>`
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <input type="radio" name="jawaban_${idx}" value="${i}" onchange="updateSoal(${idx},'jawaban',${i})" ${i===0?'checked':''} style="accent-color:var(--p);width:16px;height:16px;flex-shrink:0">
+            <span style="font-size:12px;font-weight:600;color:var(--p);width:16px">${l}.</span>
+            <input class="inp" style="margin:0;flex:1" placeholder="Pilihan ${l}..." oninput="updateSoal(${idx},'pilihan_${i}',this.value)">
+          </div>`).join('')}
+      `;
+      container.appendChild(div);
+    };
+
+    window.hapusPertanyaan = (idx)=>{ const el=document.getElementById('soal_'+idx); if(el)el.remove(); window._pertanyaan[idx]=null; };
+    window.updateSoal = (idx,field,val)=>{
+      if(!window._pertanyaan[idx])return;
+      if(field==='soal')window._pertanyaan[idx].soal=val;
+      else if(field==='jawaban')window._pertanyaan[idx].jawaban=parseInt(val);
+      else if(field.startsWith('pilihan_')){const i=parseInt(field.split('_')[1]);window._pertanyaan[idx].pilihan[i]=val;}
+    };
+
+    window.simpanKuis = async()=>{
+      const judul=document.getElementById('kuisJudul').value.trim();
+      const durasi=parseInt(document.getElementById('kuisDurasi').value)||30;
+      if(!judul)return toast('⚠️ Isi judul kuis dulu');
+      const valid=window._pertanyaan.filter(p=>p&&p.soal.trim()&&p.pilihan.some(x=>x.trim()));
+      if(valid.length===0)return toast('⚠️ Tambahkan minimal 1 soal');
+      const kuisRef=await addDoc(collection(db,'pertemuan',_prt.id,'kuis'),{judul,durasi,createdAt:serverTimestamp()});
+      for(const p of valid){ await addDoc(collection(db,'pertemuan',_prt.id,'kuis',kuisRef.id,'pertanyaan'),p); }
+      toast('✅ Kuis berhasil dibuat!');
+      await renderKuisTab();
+    };
+
+    window.hapusKuis=async(kuisId)=>{ if(!confirm('Hapus kuis ini?'))return; await deleteDoc(doc(db,'pertemuan',_prt.id,'kuis',kuisId)); toast('🗑️ Kuis dihapus'); await renderKuisTab(); };
+
+    window.mulaiKuis=async(kuisId,judulKuis,durasi)=>{
+      const pertSnap=await getDocs(collection(db,'pertemuan',_prt.id,'kuis',kuisId,'pertanyaan'));
+      const soalList=[];
+      pertSnap.forEach(d=>soalList.push({id:d.id,...d.data()}));
+      if(soalList.length===0)return toast('⚠️ Kuis ini belum memiliki soal');
+      let jawabanMhs=new Array(soalList.length).fill(null);
+      let timeLeft=durasi*60;
+      let timerInterval=null;
+
+      const renderKuisModal=()=>{
+        const menit=Math.floor(timeLeft/60).toString().padStart(2,'0');
+        const detik=(timeLeft%60).toString().padStart(2,'0');
+        const timerColor=timeLeft<60?'color:#dc2626':'color:var(--p)';
+        let soalHtml=soalList.map((s,i)=>`
+          <div class="soal-card" style="margin-bottom:12px">
+            <div style="font-weight:600;font-size:14px;margin-bottom:10px">${i+1}. ${s.soal}</div>
+            ${(s.pilihan||[]).map((p,j)=>`
+              <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1.5px solid ${jawabanMhs[i]===j?'var(--p)':'var(--border)'};border-radius:8px;margin-bottom:6px;cursor:pointer;background:${jawabanMhs[i]===j?'var(--pl)':'#fff'};transition:all .15s">
+                <input type="radio" name="soal_${i}" value="${j}" ${jawabanMhs[i]===j?'checked':''} onchange="pilihJawaban(${i},${j})" style="accent-color:var(--p)">
+                <span>${['A','B','C','D'][j]}. ${p}</span>
+              </label>`).join('')}
+          </div>`).join('');
+        const content=`
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:12px;background:var(--pl);border-radius:10px">
+            <div style="font-size:13px;font-weight:600">${judulKuis}</div>
+            ${durasi>0?`<div style="font-size:16px;font-weight:800;${timerColor}" id="kuisTimer">⏱️ ${menit}:${detik}</div>`:''}
+          </div>
+          <div id="soalContainer">${soalHtml}</div>
+          <button class="btn-submit" onclick="kumpulKuis('${kuisId}',${JSON.stringify(soalList).replace(/'/g,"\\'")})" style="margin-top:8px">📤 Kumpulkan Jawaban</button>`;
+        openModal('Kuis', content);
+      };
+
+      window.pilihJawaban=(soalIdx,pilihanIdx)=>{
+        jawabanMhs[soalIdx]=pilihanIdx;
+        document.querySelectorAll(`[name="soal_${soalIdx}"]`).forEach(r=>{
+          const label=r.closest('label'); const j=parseInt(r.value);
+          if(label){label.style.borderColor=jawabanMhs[soalIdx]===j?'var(--p)':'var(--border)';label.style.background=jawabanMhs[soalIdx]===j?'var(--pl)':'#fff';}
+        });
+      };
+
+      window.kumpulKuis=async(kuisId,soalListData)=>{
+        if(timerInterval)clearInterval(timerInterval);
+        let benar=0;
+        soalListData.forEach((s,i)=>{if(jawabanMhs[i]===s.jawaban)benar++;});
+        const total=soalListData.length;
+        const nilai=Math.round((benar/total)*100);
+        await setDoc(doc(db,'pertemuan',_prt.id,'kuis',kuisId,'jawaban',user.id),{
+          mahasiswaId:user.id,nama:user.nama,nim:user.nim||'-',jawaban:jawabanMhs,benar,total,nilai,waktu:serverTimestamp()
+        });
+        closeModal();
+        toast(`✅ Selesai! Nilai: ${nilai} (${benar}/${total} benar)`);
+        await renderKuisTab();
+      };
+
+      renderKuisModal();
+      if(durasi>0){
+        timerInterval=setInterval(()=>{
+          timeLeft--;
+          const el=document.getElementById('kuisTimer');
+          if(el){const m=Math.floor(timeLeft/60).toString().padStart(2,'0');const s=(timeLeft%60).toString().padStart(2,'0');el.textContent=`⏱️ ${m}:${s}`;el.style.color=timeLeft<60?'#dc2626':'var(--p)';}
+          if(timeLeft<=0){clearInterval(timerInterval);toast('⏰ Waktu habis! Jawaban dikumpulkan otomatis.');window.kumpulKuis(kuisId,soalList);}
+        },1000);
+      }
+    };
+
+    window.lihatHasilKuis=async(kuisId,judulKuis)=>{
+      const snap=await getDocs(collection(db,'pertemuan',_prt.id,'kuis',kuisId,'jawaban'));
+      const list=[];snap.forEach(d=>list.push(d.data()));list.sort((a,b)=>(b.nilai||0)-(a.nilai||0));
+      let html='';
+      if(list.length===0){html=`<div class="empty" style="padding:30px"><div class="empty-ico">📊</div><h3>Belum ada peserta</h3></div>`;}
+      else{
+        const rataRata=Math.round(list.reduce((s,x)=>s+(x.nilai||0),0)/list.length);
+        html=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          <div style="background:var(--pl);border-radius:10px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:var(--p)">${list.length}</div><div style="font-size:12px;color:var(--muted)">Peserta</div></div>
+          <div style="background:#ecfdf5;border-radius:10px;padding:14px;text-align:center"><div style="font-size:24px;font-weight:800;color:var(--g)">${rataRata}</div><div style="font-size:12px;color:var(--muted)">Rata-rata Nilai</div></div>
+        </div>
+        <div class="tugas-list">${list.map((r,i)=>`
+          <div class="kumpul-item" style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;font-weight:700;color:var(--muted)">#${i+1}</span><span style="font-weight:600">${r.nama}</span></div>
+              <div style="font-size:12px;color:var(--muted)">NIM: ${r.nim||'-'} · Benar ${r.benar}/${r.total}</div>
+            </div>
+            <div style="font-size:20px;font-weight:800;color:${r.nilai>=70?'var(--g)':r.nilai>=50?'var(--a)':'var(--r)'}">${r.nilai}</div>
+          </div>`).join('')}</div>`;
+      }
+      openModal('Hasil: '+judulKuis, html);
+    };
+
+    // ── ABSENSI TAB ──────────────────────────────────
+    async function renderAbsensiTab(){
+      const isDsn = user.role === 'dosen';
+      const tc = document.getElementById('tabContent');
+      if(!tc) return;
+      const mhsSnap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
+      const mhsList=[];mhsSnap.forEach(d=>mhsList.push({id:d.id,...d.data()}));
+      mhsList.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
+      const absSnap=await getDocs(query(collection(db,'absensi'),where('pertemuanId','==',_prt.id)));
+      const absMap={};absSnap.forEach(d=>{const dat=d.data();absMap[dat.mahasiswaId]={id:d.id,...dat};});
+
+      if(isDsn){
+        let html=`<div class="card" style="margin-bottom:12px">
+          <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px">📋 Rekap Absensi Pertemuan ${_prt.pertemuanKe}</div>
+          <div style="display:flex;gap:10px">
+            <span class="badge badge-green">Hadir: ${Object.values(absMap).filter(a=>a.status==='hadir').length}</span>
+            <span class="badge badge-red">Tidak: ${Object.values(absMap).filter(a=>a.status==='tidak').length}</span>
+            <span class="badge badge-yellow">Izin: ${Object.values(absMap).filter(a=>a.status==='izin').length}</span>
+            <span class="badge" style="background:#f3f4f6;color:var(--muted)">Belum: ${mhsList.length-Object.keys(absMap).length}</span>
+          </div>
+        </div><div class="tugas-list">`;
+        mhsList.forEach(m=>{
+          const abs=absMap[m.id];const status=abs?.status||'belum';
+          const statusLabel={hadir:'✅ Hadir',tidak:'❌ Tidak Hadir',izin:'📋 Izin',belum:'—'}[status]||'—';
+          const statusColor={hadir:'badge-green',tidak:'badge-red',izin:'badge-yellow',belum:''}[status]||'';
+          html+=`<div class="kumpul-item" style="display:flex;justify-content:space-between;align-items:center">
+            <div><div style="font-weight:600;font-size:14px">${m.nama}</div><div style="font-size:12px;color:var(--muted)">NIM: ${m.nim||'-'} · ${m.prodi||'-'}</div></div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <span class="badge ${statusColor}">${statusLabel}</span>
+              <select class="inp" style="margin:0;width:auto;padding:6px 10px;font-size:12px" onchange="updateAbsensi('${m.id}','${m.nama}',this.value)">
+                <option value="">Ubah...</option>
+                <option value="hadir">Hadir</option>
+                <option value="tidak">Tidak Hadir</option>
+                <option value="izin">Izin</option>
+              </select>
+            </div>
+          </div>`;
+        });
+        html+=`</div><div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-action btn-secondary" onclick="absensiSemuaHadir()">✅ Tandai Semua Hadir</button>
+        </div>`;
+        tc.innerHTML=html;
+      } else {
+        const abs=absMap[user.id];const status=abs?.status||null;
+        const statusInfo={hadir:{icon:'✅',label:'Hadir',color:'var(--g)',bg:'#ecfdf5'},tidak:{icon:'❌',label:'Tidak Hadir',color:'var(--r)',bg:'var(--rb)'},izin:{icon:'📋',label:'Izin',color:'var(--a)',bg:'#fffbeb'}};
+        const info=status?statusInfo[status]:null;
+        tc.innerHTML=`<div class="card" style="text-align:center;padding:32px">
+          ${info?`<div style="font-size:48px;margin-bottom:12px">${info.icon}</div><div style="font-size:18px;font-weight:700;color:${info.color};margin-bottom:8px">Status: ${info.label}</div><div style="font-size:13px;color:var(--muted)">Absensi Pertemuan ${_prt.pertemuanKe} telah tercatat</div>`:
+          `<div style="font-size:48px;margin-bottom:12px">📋</div><div style="font-size:16px;font-weight:700;color:var(--ink);margin-bottom:6px">Belum Diabsen</div><div style="font-size:13px;color:var(--muted)">Absensi akan dicatat oleh dosen</div>`}
+        </div>
+        <div class="card" style="margin-top:12px">
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px">Rekap Kehadiranmu</div>
+          <div id="rekapMhs"><div class="loading"><div class="spin"></div></div></div>
+        </div>`;
+        const allAbsSnap=await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id)));
+        const allAbs=[];allAbsSnap.forEach(d=>allAbs.push(d.data()));
+        const hadir=allAbs.filter(a=>a.status==='hadir').length;
+        const tidak=allAbs.filter(a=>a.status==='tidak').length;
+        const izin=allAbs.filter(a=>a.status==='izin').length;
+        const totalDiabsen=allAbs.length;
+        const pct=totalDiabsen>0?Math.round(hadir/totalDiabsen*100):0;
+        const rekapEl=document.getElementById('rekapMhs');
+        if(rekapEl){rekapEl.innerHTML=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center">
+          <div><div style="font-size:20px;font-weight:800;color:var(--g)">${hadir}</div><div style="font-size:11px;color:var(--muted)">Hadir</div></div>
+          <div><div style="font-size:20px;font-weight:800;color:var(--r)">${tidak}</div><div style="font-size:11px;color:var(--muted)">Tidak</div></div>
+          <div><div style="font-size:20px;font-weight:800;color:var(--a)">${izin}</div><div style="font-size:11px;color:var(--muted)">Izin</div></div>
+          <div><div style="font-size:20px;font-weight:800;color:var(--p)">${pct}%</div><div style="font-size:11px;color:var(--muted)">Kehadiran</div></div>
+        </div>`;}
+      }
+    }
+
+    window.updateAbsensi=async(mhsId,nama,status)=>{
+      if(!status)return;
+      const existing=await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',mhsId),where('pertemuanId','==',_prt.id)));
+      if(existing.empty){await addDoc(collection(db,'absensi'),{mahasiswaId:mhsId,namaMhs:nama,pertemuanId:_prt.id,pertemuanKe:_prt.pertemuanKe,status,updatedAt:serverTimestamp()});}
+      else{await updateDoc(doc(db,'absensi',existing.docs[0].id),{status,updatedAt:serverTimestamp()});}
+      toast('✅ Absensi diperbarui');await renderAbsensiTab();
+    };
+
+    window.absensiSemuaHadir=async()=>{
+      if(!confirm('Tandai semua mahasiswa hadir?'))return;
+      const mhsSnap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
+      const batch=[];mhsSnap.forEach(d=>batch.push({id:d.id,...d.data()}));
+      for(const m of batch){
+        const existing=await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',m.id),where('pertemuanId','==',_prt.id)));
+        if(existing.empty){await addDoc(collection(db,'absensi'),{mahasiswaId:m.id,namaMhs:m.nama,pertemuanId:_prt.id,pertemuanKe:_prt.pertemuanKe,status:'hadir',updatedAt:serverTimestamp()});}
+        else{await updateDoc(doc(db,'absensi',existing.docs[0].id),{status:'hadir',updatedAt:serverTimestamp()});}
+      }
+      toast('✅ Semua mahasiswa ditandai hadir');await renderAbsensiTab();
+    };
+
+    // ── DATA MAHASISWA ─────────────────────────────────
+    async function renderMahasiswa(){
+      const snap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
+      const list=[];snap.forEach(d=>list.push({id:d.id,...d.data()}));list.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
+      if(list.length===0){setContent(`<div class="empty"><div class="empty-ico">👥</div><h3>Belum ada mahasiswa</h3><p>Mahasiswa akan muncul setelah mendaftar.</p></div>`);return;}
+      const [allAbsSnap,allNilaiSnap]=await Promise.all([getDocs(collection(db,'absensi')),getDocs(collection(db,'nilai_akhir'))]);
+      const absMap={};allAbsSnap.forEach(d=>{const dat=d.data();if(!absMap[dat.mahasiswaId])absMap[dat.mahasiswaId]=[];absMap[dat.mahasiswaId].push(dat.status);});
+      const nilaiMap={};allNilaiSnap.forEach(d=>{nilaiMap[d.id]=d.data();});
+      setContent(`
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+          <div class="section-title" style="flex:1">${list.length} Mahasiswa Terdaftar</div>
+          <div style="position:relative">
+            <input class="inp" id="cariMhs" placeholder="Cari nama / NIM..." style="margin:0;padding-left:36px;width:220px" oninput="filterMhs()">
+            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted)">${svgIcon('search')}</span>
+          </div>
+        </div>
+        <div class="mhs-table-wrap">
+          <table class="mhs-table" id="mhsTable">
+            <thead><tr><th>No</th><th>Nama</th><th>NIM</th><th>Prodi</th><th>Sem</th><th>Kehadiran</th><th>Nilai</th><th>Aksi</th></tr></thead>
+            <tbody id="mhsTbody">
+              ${list.map((m,i)=>{
+                const abs=absMap[m.id]||[];const hadir=abs.filter(s=>s==='hadir').length;const total=abs.length;
+                const pct=total>0?Math.round(hadir/total*100):0;const nilai=nilaiMap[m.id]?.nilaiAkhir||'-';
+                const pctColor=pct>=75?'var(--g)':pct>=50?'var(--a)':'var(--r)';
+                return `<tr data-nama="${(m.nama||'').toLowerCase()}" data-nim="${(m.nim||'').toLowerCase()}">
+                  <td style="color:var(--muted)">${i+1}</td>
+                  <td><div style="font-weight:600">${m.nama||'-'}</div><div style="font-size:11px;color:var(--muted)">${m.email||''}</div></td>
+                  <td><span class="badge" style="background:var(--pl);color:var(--p)">${m.nim||'-'}</span></td>
+                  <td style="font-size:12px">${m.prodi||'-'}</td>
+                  <td style="text-align:center">${m.semester||'-'}</td>
+                  <td><div style="font-weight:700;color:${pctColor}">${pct}%</div><div style="font-size:11px;color:var(--muted)">${hadir}/${total} pertemuan</div></td>
+                  <td><span style="font-weight:700;font-size:16px;color:${nilai!=='-'?(parseInt(nilai)>=70?'var(--g)':parseInt(nilai)>=50?'var(--a)':'var(--r)'):'var(--muted)'}">${nilai}</span></td>
+                  <td><button class="btn-action btn-secondary" onclick="lihatDetailMhs('${m.id}','${(m.nama||'').replace(/'/g,"\\'")}')">Detail</button></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`);
+    }
+
+    window.filterMhs=()=>{
+      const q=document.getElementById('cariMhs').value.toLowerCase();
+      document.querySelectorAll('#mhsTbody tr').forEach(row=>{const nama=row.dataset.nama||'';const nim=row.dataset.nim||'';row.style.display=(nama.includes(q)||nim.includes(q))?'':'none';});
+    };
+
+    window.lihatDetailMhs=async(mhsId,namaMhs)=>{
+      const [mhsSnap,allAbsSnap,nilaiSnap]=await Promise.all([getDoc(doc(db,'users',mhsId)),getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',mhsId))),getDoc(doc(db,'nilai_akhir',mhsId))]);
+      const m=mhsSnap.exists()?mhsSnap.data():{};
+      const absList=[];allAbsSnap.forEach(d=>absList.push(d.data()));
+      const hadir=absList.filter(a=>a.status==='hadir').length;const tidak=absList.filter(a=>a.status==='tidak').length;const izin=absList.filter(a=>a.status==='izin').length;const total=absList.length;const pct=total>0?Math.round(hadir/total*100):0;
+      const n=nilaiSnap.exists()?nilaiSnap.data():{};
+      const html=`<div style="text-align:center;margin-bottom:16px">
+        <div style="width:64px;height:64px;border-radius:16px;background:linear-gradient(135deg,var(--p),#7c3aed);color:#fff;font-size:22px;font-weight:800;display:flex;align-items:center;justify-content:center;margin:0 auto 10px">${(m.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}</div>
+        <div style="font-size:18px;font-weight:700">${m.nama||'-'}</div><div style="font-size:13px;color:var(--muted)">${m.email||''}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+        <div class="card" style="padding:12px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px">NIM</div><div style="font-weight:700">${m.nim||'-'}</div></div>
+        <div class="card" style="padding:12px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Semester</div><div style="font-weight:700">${m.semester||'-'}</div></div>
+        <div class="card" style="padding:12px;grid-column:1/-1"><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Program Studi</div><div style="font-weight:700">${m.prodi||'-'}</div></div>
+      </div>
+      <div class="card" style="margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px">📋 Rekap Kehadiran</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);text-align:center;gap:8px">
+          <div><div style="font-size:22px;font-weight:800;color:var(--g)">${hadir}</div><div style="font-size:11px;color:var(--muted)">Hadir</div></div>
+          <div><div style="font-size:22px;font-weight:800;color:var(--r)">${tidak}</div><div style="font-size:11px;color:var(--muted)">Tidak</div></div>
+          <div><div style="font-size:22px;font-weight:800;color:var(--a)">${izin}</div><div style="font-size:11px;color:var(--muted)">Izin</div></div>
+          <div><div style="font-size:22px;font-weight:800;color:${pct>=75?'var(--g)':pct>=50?'var(--a)':'var(--r)'}">${pct}%</div><div style="font-size:11px;color:var(--muted)">Kehadiran</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px">🎓 Nilai</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center">
+          ${[['UTS','nilaiUTS'],['UAS','nilaiUAS'],['Akhir','nilaiAkhir']].map(([lbl,key])=>`<div><div style="font-size:22px;font-weight:800;color:var(--p)">${n[key]||'-'}</div><div style="font-size:11px;color:var(--muted)">${lbl}</div></div>`).join('')}
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <input class="inp" id="editNilaiUTS_${mhsId}" placeholder="UTS" value="${n.nilaiUTS||''}" style="margin:0">
+          <input class="inp" id="editNilaiUAS_${mhsId}" placeholder="UAS" value="${n.nilaiUAS||''}" style="margin:0">
+          <input class="inp" id="editNilaiAkhir_${mhsId}" placeholder="Akhir" value="${n.nilaiAkhir||''}" style="margin:0">
+        </div>
+        <button class="btn-submit" style="margin-top:10px" onclick="simpanNilaiDariDetail('${mhsId}')">Simpan Nilai</button>
+      </div>`;
+      openModal('Detail: '+namaMhs, html);
+    };
+
+    window.simpanNilaiDariDetail=async(mhsId)=>{
+      const uts=document.getElementById('editNilaiUTS_'+mhsId)?.value.trim();
+      const uas=document.getElementById('editNilaiUAS_'+mhsId)?.value.trim();
+      const akhir=document.getElementById('editNilaiAkhir_'+mhsId)?.value.trim();
+      await setDoc(doc(db,'nilai_akhir',mhsId),{nilaiUTS:uts?parseFloat(uts):null,nilaiUAS:uas?parseFloat(uas):null,nilaiAkhir:akhir?parseFloat(akhir):null,updatedAt:serverTimestamp()},{merge:true});
+      toast('✅ Nilai disimpan!');
+    };
+
+    async function renderNilaiDsn(){
+      const snap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
+      const list=[];snap.forEach(d=>list.push({id:d.id,...d.data()}));list.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
+      if(list.length===0){setContent(`<div class="empty"><div class="empty-ico">✏️</div><h3>Belum ada mahasiswa</h3></div>`);return;}
+      const nilaiSnap=await getDocs(collection(db,'nilai_akhir'));const nilaiMap={};nilaiSnap.forEach(d=>nilaiMap[d.id]=d.data());
+      setContent(`
+        <div class="section-title" style="margin-bottom:12px">Input Nilai Mahasiswa</div>
+        <div class="card">
+          <table class="mhs-table">
+            <thead><tr><th>Nama / NIM</th><th>UTS</th><th>UAS</th><th>Nilai Akhir</th><th>Simpan</th></tr></thead>
+            <tbody>${list.map(m=>{const n=nilaiMap[m.id]||{};return `<tr>
+              <td><div style="font-weight:600">${m.nama}</div><div style="font-size:11px;color:var(--muted)">${m.nim||'-'}</div></td>
+              <td><input class="inp" style="margin:0;width:70px;text-align:center" id="n_uts_${m.id}" value="${n.nilaiUTS||''}" placeholder="-"></td>
+              <td><input class="inp" style="margin:0;width:70px;text-align:center" id="n_uas_${m.id}" value="${n.nilaiUAS||''}" placeholder="-"></td>
+              <td><input class="inp" style="margin:0;width:70px;text-align:center" id="n_akhir_${m.id}" value="${n.nilaiAkhir||''}" placeholder="-" oninput="hitungAkhir('${m.id}')"></td>
+              <td><button class="btn-action btn-primary" onclick="simpanNilai('${m.id}')">${svgIcon('check')} Simpan</button></td>
+            </tr>`;}).join('')}</tbody>
+          </table>
+        </div>`);
+    }
+
+    window.hitungAkhir=(id)=>{
+      const uts=parseFloat(document.getElementById('n_uts_'+id)?.value)||0;
+      const uas=parseFloat(document.getElementById('n_uas_'+id)?.value)||0;
+      const el=document.getElementById('n_akhir_'+id);
+      if(el&&!el.value)el.value=Math.round(uts*0.4+uas*0.6);
+    };
+
+    window.simpanNilai=async(mhsId)=>{
+      const uts=document.getElementById('n_uts_'+mhsId)?.value.trim();
+      const uas=document.getElementById('n_uas_'+mhsId)?.value.trim();
+      const akhir=document.getElementById('n_akhir_'+mhsId)?.value.trim();
+      await setDoc(doc(db,'nilai_akhir',mhsId),{nilaiUTS:uts?parseFloat(uts):null,nilaiUAS:uas?parseFloat(uas):null,nilaiAkhir:akhir?parseFloat(akhir):null,updatedAt:serverTimestamp()},{merge:true});
+      toast('✅ Nilai disimpan!');
+    };
+
+    async function renderAbsensiMhs(){
+      const [prtSnap,absSnap]=await Promise.all([getDocs(collection(db,'pertemuan')),getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id)))]);
+      const prts=[];prtSnap.forEach(d=>prts.push({id:d.id,...d.data()}));prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
+      const absMap={};absSnap.forEach(d=>{const dat=d.data();absMap[dat.pertemuanId]=dat.status;});
+      const hadir=Object.values(absMap).filter(s=>s==='hadir').length;const total=Object.keys(absMap).length;const pct=total>0?Math.round(hadir/total*100):0;
+      setContent(`
+        <div class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+          <div class="stat-card" style="--c:var(--g)"><div class="stat-ico" style="background:#ecfdf5;color:var(--g)">${svgIcon('check-square')}</div><div class="stat-val">${hadir}</div><div class="stat-lbl">Hadir</div></div>
+          <div class="stat-card" style="--c:var(--r)"><div class="stat-ico" style="background:var(--rb);color:var(--r)">${svgIcon('x')}</div><div class="stat-val">${Object.values(absMap).filter(s=>s==='tidak').length}</div><div class="stat-lbl">Tidak Hadir</div></div>
+          <div class="stat-card" style="--c:var(--a)"><div class="stat-ico" style="background:#fffbeb;color:var(--a)">${svgIcon('file-text')}</div><div class="stat-val">${Object.values(absMap).filter(s=>s==='izin').length}</div><div class="stat-lbl">Izin</div></div>
+          <div class="stat-card" style="--c:var(--p)"><div class="stat-ico" style="background:var(--pl);color:var(--p)">${svgIcon('bar-chart-2')}</div><div class="stat-val" style="color:${pct>=75?'var(--g)':pct>=50?'var(--a)':'var(--r)'}">${pct}%</div><div class="stat-lbl">Kehadiran</div></div>
+        </div>
+        <div class="section-title" style="margin-bottom:10px">Riwayat Absensi</div>
+        <div class="card" style="padding:0;overflow:hidden">
+          ${prts.length===0?`<div class="empty"><div class="empty-ico">📅</div><h3>Belum ada pertemuan</h3></div>`:
+          prts.map(p=>{const st=absMap[p.id]||null;const icon={hadir:'✅',tidak:'❌',izin:'📋'}[st]||'—';const label={hadir:'Hadir',tidak:'Tidak Hadir',izin:'Izin'}[st]||'Belum Dicatat';const badgeCls={hadir:'badge-green',tidak:'badge-red',izin:'badge-yellow'}[st]||'';
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)">
+              <div><div style="font-weight:600;font-size:14px">Pertemuan ${p.pertemuanKe}</div><div style="font-size:12px;color:var(--muted)">${p.topik||'—'}</div></div>
+              <span class="badge ${badgeCls}">${icon} ${label}</span>
+            </div>`;}).join('')}
+        </div>`);
+    }
+
+    async function renderNilaiMhs(){
+      const snap=await getDoc(doc(db,'nilai_akhir',user.id));
+      const n=snap.exists()?snap.data():{};const na=n.nilaiAkhir;
+      const grade=na>=85?'A':na>=75?'B':na>=65?'C':na>=55?'D':'E';
+      const gradeColor=na>=75?'var(--g)':na>=55?'var(--a)':'var(--r)';
+      setContent(`
+        <div class="profil-card" style="max-width:480px">
+          <div style="font-size:64px;margin-bottom:8px">${svgIcon('award')}</div>
+          <div class="profil-nama">${user.nama}</div>
+          <div class="profil-email">NIM: ${user.nim||'-'}</div>
+          <div class="profil-badge">${user.prodi||'-'} · Sem ${user.semester||'-'}</div>
+          ${na!=null?`<div style="margin:20px 0;text-align:center"><div style="font-size:72px;font-weight:800;color:${gradeColor};line-height:1">${grade}</div><div style="font-size:14px;color:var(--muted);margin-top:4px">Grade</div></div>`:
+          `<div style="margin:20px 0;font-size:36px">⏳</div>`}
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;margin-top:8px">
+            ${[['UTS',n.nilaiUTS,'#eef2ff','var(--p)'],['UAS',n.nilaiUAS,'#ecfdf5','var(--g)'],['Akhir',n.nilaiAkhir,'var(--pl)','var(--p)']].map(([lbl,val,bg,col])=>`
+              <div style="background:${bg};border-radius:12px;padding:16px;text-align:center"><div style="font-size:28px;font-weight:800;color:${col}">${val??'-'}</div><div style="font-size:12px;color:var(--muted);margin-top:4px">${lbl}</div></div>`).join('')}
+          </div>
+          ${na==null?`<div style="margin-top:16px;font-size:13px;color:var(--muted);text-align:center">Nilai belum diinput oleh dosen</div>`:''}
+        </div>`);
+    }
+
+    async function renderNotifikasi(){
+      const isDsn=user.role==='dosen';
+      let html=`<div class="section-title" style="margin-bottom:12px">Notifikasi</div>`;
+      if(isDsn){
+        html+=`<div class="card" style="margin-bottom:12px">
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px">${svgIcon('plus')} Kirim Notifikasi</div>
+          <input id="notifJudul" class="inp" placeholder="Judul notifikasi">
+          <textarea id="notifIsi" class="inp" placeholder="Isi notifikasi..." style="resize:vertical;min-height:80px"></textarea>
+          <button class="btn-submit" onclick="kirimNotif()">Kirim ke Semua</button>
+        </div>`;
+      }
+      html+=`<div id="listNotif"><div class="loading"><div class="spin"></div></div></div>`;
+      setContent(html);await loadNotif();
+    }
+
+    window.kirimNotif=async()=>{
+      const judul=document.getElementById('notifJudul').value.trim();const isi=document.getElementById('notifIsi').value.trim();
+      if(!judul||!isi){alert('Isi semua field!');return;}
+      await addDoc(collection(db,'notifikasi'),{title:judul,pesan:isi,createdAt:serverTimestamp()});
+      document.getElementById('notifJudul').value='';document.getElementById('notifIsi').value='';
+      toast('✅ Notifikasi terkirim!');await loadNotif();
+    };
+
+    async function loadNotif(){
+      const list=[];
+      try{const snap=await getDocs(query(collection(db,'notifikasi'),orderBy('createdAt','desc')));snap.forEach(d=>list.push({id:d.id,...d.data()}));}catch(e){console.error('Gagal memuat notifikasi:',e);}
+      const el=document.getElementById('listNotif');if(!el)return;
+      if(list.length===0){el.innerHTML=`<div class="empty"><div class="empty-ico">🔔</div><h3>Belum ada notifikasi</h3></div>`;return;}
+      el.innerHTML=list.map(n=>{
+        const waktu=n.createdAt?.toDate?n.createdAt.toDate().toLocaleDateString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+        return `<div class="card" style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div><div style="font-weight:700;font-size:14px;margin-bottom:4px">🔔 ${n.title||''}</div><div style="font-size:13px;color:var(--ink2)">${n.pesan||''}</div></div>
+            ${user.role==='dosen'?`<button class="btn-action btn-danger" style="padding:4px 8px;flex-shrink:0" onclick="hapusNotif('${n.id}')">${svgIcon('trash')}</button>`:''}
+          </div>
+          ${waktu?`<div style="font-size:11px;color:var(--muted);margin-top:6px">${waktu}</div>`:''}
+        </div>`;
+      }).join('');
+    }
+
+    window.hapusNotif=async(notifId)=>{await deleteDoc(doc(db,'notifikasi',notifId));toast('🗑️ Notifikasi dihapus');await loadNotif();};
+
+    async function renderProfil(){
+      try{
+        const inisial=(user?.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+        setContent(`
+          <div class="profil-card">
+            <div class="profil-av">${inisial}</div>
+            <div class="profil-nama">${user?.nama||'-'}</div>
+            <div class="profil-email">${user?.email||'-'}</div>
+            <div class="profil-badge">${user?.role==='dosen'?'👨‍🏫 Dosen':'🎓 Mahasiswa'}</div>
+            ${user?.nim?`<div class="profil-detail">NIM: ${user.nim}</div>`:''}
+            ${user?.prodi?`<div class="profil-detail">Prodi: ${user.prodi}</div>`:''}
+            ${user?.semester?`<div class="profil-detail">Semester: ${user.semester}</div>`:''}
+            <button class="btn-submit" style="margin-top:20px;max-width:200px" onclick="doLogout()">Keluar</button>
+          </div>`);
+      }catch(e){setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat profil</h3><p>${e.message}</p></div>`);}
+    }
+
+    function v(id){return document.getElementById(id)?.value||'';}
+    window.toast=(msg,dur=2800)=>{
+      const t=document.getElementById('toast');t.innerHTML=msg;t.classList.add('show');
+      clearTimeout(window._tToast);window._tToast=setTimeout(()=>t.classList.remove('show'),dur);
+    };
+
+    
+    window.closeModal=()=>{document.getElementById('modalBg').classList.remove('open');document.body.style.overflow='';};
+    window.openModal=(title,content)=>{
+      document.getElementById('modalBox').innerHTML=`
+        <div class="modal-hd"><div class="modal-title">${title}</div><button class="modal-x" onclick="closeModal()">✕</button></div>
+        <div class="modal-body">${content}</div>`;
+      document.getElementById('modalBg').classList.add('open');document.body.style.overflow='hidden';
+    };
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    :root {
+      --ink: #111827; --ink2: #374151; --muted: #6b7280;
+      --border: #e5e7eb; --bg: #f9fafb; --white: #ffffff;
+      --p: #4f46e5; --pd: #3730a3; --pl: #eef2ff;
+      --g: #059669; --r: #dc2626; --rb: #fef2f2; --a: #d97706;
+      --side: 240px; --top: 60px; --bot: 64px;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+      --shadow-md: 0 4px 16px rgba(0,0,0,.1);
+    }
+    body { font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; height: 100vh; overflow: hidden; }
+    svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
+    #screen-login { position: fixed; inset: 0; background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 60%, #312e81 100%); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; overflow-y: auto; }
+    .login-wrap { width: 100%; max-width: 400px; }
+    .login-brand { text-align: center; margin-bottom: 28px; }
+    .login-brand-logo { font-size: 40px; margin-bottom: 8px; }
+    .login-brand h1 { color: #fff; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+    .login-brand p { color: rgba(255,255,255,.45); margin-top: 4px; font-size: 13px; }
+    .login-card { background: #fff; border-radius: 20px; padding: 28px; box-shadow: 0 32px 80px rgba(0,0,0,.5); }
+    .role-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 22px; }
+    .role-tab { padding: 11px; border: 1.5px solid var(--border); border-radius: 10px; cursor: pointer; text-align: center; font-size: 13px; font-weight: 500; color: var(--muted); background: #fff; transition: all .15s; }
+    .role-tab.on { border-color: var(--p); background: var(--pl); color: var(--p); font-weight: 700; }
+    .inp { width: 100%; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 14px; margin-bottom: 12px; outline: none; font-family: inherit; transition: border-color .15s, box-shadow .15s; color: var(--ink); }
+    .inp:focus { border-color: var(--p); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+    .btn-submit { width: 100%; padding: 13px; background: var(--p); color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn-submit:hover { background: var(--pd); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(79,70,229,.3); }
+    .btn-submit:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .dosen-info { background: var(--pl); border: 1.5px solid var(--p); border-radius: 10px; padding: 12px 14px; color: var(--p); margin-bottom: 14px; display: none; font-size: 13px; }
+    .auth-msg { padding: 11px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 13px; display: none; align-items: center; gap: 8px; }
+    #authErr { background: var(--rb); color: var(--r); border: 1px solid #fca5a5; }
+    #authOk { background: #ecfdf5; color: var(--g); border: 1px solid #6ee7b7; }
+    #app { display: none; height: 100vh; flex-direction: row; }
+    .sidebar { width: var(--side); background: #111827; display: flex; flex-direction: column; height: 100vh; flex-shrink: 0; transition: transform .25s cubic-bezier(.4,0,.2,1); }
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+    .topbar { height: var(--top); background: #fff; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 12px; flex-shrink: 0; }
+    .page-title { font-weight: 700; font-size: 16px; flex: 1; color: var(--ink); }
+    .content { flex: 1; overflow-y: auto; padding: 20px; }
+    .bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid var(--border); z-index: 50; padding-bottom: env(safe-area-inset-bottom); }
+    .bn-items { display: flex; justify-content: space-around; }
+    .bn-item { display: flex; flex-direction: column; align-items: center; padding: 10px 4px 6px; cursor: pointer; font-size: 10px; font-weight: 500; gap: 3px; color: var(--muted); min-width: 0; transition: color .15s; }
+    .bn-item.on { color: var(--p); }
+    .bn-ico { display: flex; align-items: center; justify-content: center; }
+    .sb-brand { padding: 20px 16px 16px; color: #fff; font-weight: 800; font-size: 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .sb-user { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .sb-av { width: 38px; height: 38px; border-radius: 10px; background: var(--p); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+    .sb-uname { color: #fff; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #sbRole { color: rgba(255,255,255,.4); font-size: 11px; margin-top: 1px; }
+    .sb-nav { flex: 1; overflow-y: auto; padding: 10px 8px; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: rgba(255,255,255,.55); cursor: pointer; border-radius: 8px; margin-bottom: 2px; font-size: 13px; font-weight: 500; transition: all .15s; }
+    .nav-item:hover { background: rgba(255,255,255,.07); color: rgba(255,255,255,.9); }
+    .nav-item.on { background: rgba(79,70,229,.35); color: #fff; }
+    .nav-item.on .nav-ico { color: #a5b4fc; }
+    .nav-ico { width: 20px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .nav-lbl { flex: 1; }
+    .nav-logout { margin-top: 8px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 12px; }
+    .dash-hero { background: linear-gradient(135deg, var(--p), #7c3aed); border-radius: 16px; padding: 24px; margin-bottom: 16px; color: white; }
+    .dash-greet { font-size: 13px; opacity: .8; font-weight: 500; margin-bottom: 4px; }
+    .dash-name { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+    .dash-sub { font-size: 13px; opacity: .7; }
+    .stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); transition: transform .15s, box-shadow .15s; }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+    .stat-ico { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+    .stat-val { font-size: 24px; font-weight: 800; line-height: 1.2; margin-bottom: 4px; color: var(--ink); }
+    .stat-lbl { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .section-title { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .quick-actions { margin-top: 4px; }
+    .qa-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-top: 10px; }
+    .qa-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 12px; cursor: pointer; text-align: center; font-size: 13px; font-weight: 500; color: var(--ink2); transition: all .15s; box-shadow: var(--shadow); }
+    .qa-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--p); }
+    .qa-ico { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }
+    .prt-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+    .prt-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; cursor: pointer; transition: all .15s; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+    .prt-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--p), #7c3aed); opacity: 0; transition: opacity .15s; }
+    .prt-card:hover { border-color: var(--p); box-shadow: var(--shadow-md); transform: translateY(-2px); }
+    .prt-card:hover::before { opacity: 1; }
+    .prt-num { font-size: 11px; font-weight: 700; color: var(--p); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .prt-topik { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.4; }
+    .prt-arrow { margin-top: 12px; color: var(--muted); transform: rotate(180deg); }
+    .prt-detail-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+    .prt-detail-badge { font-size: 11px; font-weight: 700; color: var(--p); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+    .prt-detail-title { font-size: 16px; font-weight: 700; color: var(--ink); }
+    .btn-back { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1.5px solid var(--border); border-radius: 9px; background: #fff; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--ink2); white-space: nowrap; transition: all .15s; flex-shrink: 0; font-family: inherit; }
+    .btn-back:hover { border-color: var(--p); color: var(--p); }
+    .dtabs { display: flex; gap: 4px; margin-bottom: 16px; background: #fff; padding: 4px; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); }
+    .dtab { flex: 1; padding: 9px; text-align: center; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); transition: all .15s; }
+    .dtab.on { background: var(--p); color: #fff; font-weight: 700; box-shadow: 0 2px 8px rgba(79,70,229,.3); }
+    .materi-list { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+    .materi-item { display: flex; align-items: center; gap: 14px; padding: 16px; border-bottom: 1px solid var(--border); transition: background .1s; }
+    .materi-item:last-child { border-bottom: none; }
+    .materi-item:hover { background: #fafafa; }
+    .materi-icon-wrap { font-size: 28px; flex-shrink: 0; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: var(--bg); border-radius: 10px; }
+    .materi-info { flex: 1; min-width: 0; }
+    .materi-judul { font-weight: 600; font-size: 14px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .materi-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .materi-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .btn-action { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .15s; text-decoration: none; white-space: nowrap; }
+    .btn-primary { background: var(--p); color: #fff; }
+    .btn-primary:hover { background: var(--pd); }
+    .btn-secondary { background: #f3f4f6; color: var(--ink2); }
+    .btn-secondary:hover { background: #e5e7eb; }
+    .btn-danger { background: var(--rb); color: var(--r); }
+    .btn-danger:hover { background: #fecaca; }
+    .materi-konten { font-size: 14px; line-height: 1.8; color: var(--ink); }
+    .add-materi-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); margin-top: 16px; overflow: hidden; box-shadow: var(--shadow); }
+    .add-materi-title { display: flex; align-items: center; gap: 8px; padding: 16px 18px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 14px; color: var(--ink); background: var(--bg); }
+    .add-materi-card > div:not(.add-materi-title) { padding: 18px; }
+    .tipe-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tipe-tab { display: flex; align-items: center; justify-content: center; gap: 7px; flex: 1; padding: 10px; border: 1.5px solid var(--border); border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); transition: all .15s; font-family: inherit; }
+    .tipe-tab.on { border-color: var(--p); background: var(--pl); color: var(--p); font-weight: 700; }
+    .upload-area { border: 2px dashed var(--border); border-radius: 12px; padding: 36px 20px; text-align: center; cursor: pointer; transition: all .15s; margin-bottom: 12px; }
+    .upload-area:hover { border-color: var(--p); background: var(--pl); }
+    .upload-ico { display: flex; justify-content: center; margin-bottom: 10px; color: var(--muted); }
+    .upload-txt { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: var(--ink); }
+    .upload-sub { font-size: 12px; color: var(--muted); }
+    .file-preview-box { display: flex; align-items: center; gap: 12px; padding: 14px; background: #ecfdf5; border-radius: 10px; margin-bottom: 12px; border: 1px solid #6ee7b7; }
+    .upload-progress { margin-bottom: 12px; }
+    .progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--p), #7c3aed); border-radius: 3px; transition: width .3s; }
+    .progress-txt { font-size: 12px; color: var(--muted); text-align: center; font-weight: 500; }
+    .tugas-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+    .tugas-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+    .tugas-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+    .tugas-judul { font-weight: 700; font-size: 15px; color: var(--ink); }
+    .tugas-meta { font-size: 12px; color: var(--muted); margin-top: 4px; display: flex; align-items: center; gap: 5px; }
+    .tugas-deskripsi { font-size: 13px; color: var(--ink2); line-height: 1.6; }
+    .kumpul-info { margin-top: 10px; padding: 10px 12px; background: #ecfdf5; border-radius: 8px; border: 1px solid #6ee7b7; }
+    .kumpul-item { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 8px; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .badge-green { background: #ecfdf5; color: var(--g); }
+    .badge-red { background: var(--rb); color: var(--r); }
+    .badge-yellow { background: #fffbeb; color: var(--a); }
+    .badge-blue { background: var(--pl); color: var(--p); }
+    .soal-card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 10px; box-shadow: var(--shadow); }
+    .mhs-table-wrap { overflow-x: auto; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .mhs-table { width: 100%; border-collapse: collapse; }
+    .mhs-table th { padding: 12px 14px; text-align: left; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; border-bottom: 1px solid var(--border); background: var(--bg); white-space: nowrap; }
+    .mhs-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .mhs-table tr:last-child td { border-bottom: none; }
+    .mhs-table tr:hover td { background: #fafafa; }
+    .profil-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; text-align: center; max-width: 400px; margin: 0 auto; box-shadow: var(--shadow); }
+    .profil-av { width: 72px; height: 72px; border-radius: 20px; background: linear-gradient(135deg, var(--p), #7c3aed); color: #fff; font-size: 24px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+    .profil-nama { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+    .profil-email { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+    .profil-badge { display: inline-block; background: var(--pl); color: var(--p); font-size: 12px; font-weight: 700; padding: 5px 14px; border-radius: 20px; margin-bottom: 12px; }
+    .profil-detail { font-size: 13px; color: var(--ink2); padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; box-shadow: var(--shadow); }
+    .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: flex-end; justify-content: center; z-index: 200; backdrop-filter: blur(4px); }
+    .modal-bg.open { display: flex; }
+    .modal { background: #fff; border-radius: 20px 20px 0 0; width: 100%; max-height: 92vh; overflow-y: auto; animation: slideUp .25s ease; }
+    @keyframes slideUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .modal-hd { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: #fff; z-index: 1; }
+    .modal-title { font-weight: 700; font-size: 16px; color: var(--ink); }
+    .modal-x { border: none; background: #f3f4f6; width: 32px; height: 32px; border-radius: 50%; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--muted); transition: background .15s; }
+    .modal-x:hover { background: #e5e7eb; }
+    .modal-body { padding: 20px; }
+    .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(10px); background: var(--ink); color: #fff; padding: 11px 20px; border-radius: 40px; z-index: 999; opacity: 0; transition: all .22s; pointer-events: none; white-space: nowrap; font-size: 13px; font-weight: 500; box-shadow: 0 4px 20px rgba(0,0,0,.25); }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 60px 20px; color: var(--muted); font-size: 13px; }
+    .spin { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--p); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .empty-ico { font-size: 48px; margin-bottom: 12px; }
+    .empty h3 { font-size: 16px; font-weight: 700; color: var(--ink2); margin-bottom: 6px; }
+    .empty p { font-size: 13px; }
+    @media(max-width: 768px){
+      .sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 45; transform: translateX(-100%); width: 260px; }
+      .sidebar.open { transform: translateX(0); box-shadow: 0 0 40px rgba(0,0,0,.5); }
+      .bottom-nav { display: block; }
+      .content { padding: 16px; padding-bottom: calc(var(--bot) + 16px); }
+      .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .qa-grid { grid-template-columns: 1fr 1fr; }
+      .prt-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .materi-actions { flex-direction: column; }
+      .toast { bottom: calc(var(--bot) + 16px); }
+      .mhs-table th, .mhs-table td { padding: 10px 10px; }
+    }
+    @media(max-width: 480px){
+      .prt-grid { grid-template-columns: 1fr 1fr; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+    }
+    .ql-toolbar { border-radius: 10px 10px 0 0 !important; border-color: var(--border) !important; background: var(--bg) !important; }
+    .ql-container { border-radius: 0 0 10px 10px !important; border-color: var(--border) !important; font-family: 'Inter', system-ui, sans-serif !important; font-size: 14px !important; }
+    .ql-editor { min-height: 200px; }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="screen-login">
+  <div class="login-wrap">
+    <div class="login-brand">
+      <div class="login-brand-logo">🎓</div>
+      <h1>EduCampus</h1>
+      <p>Platform pembelajaran digital</p>
+    </div>
+    <div class="login-card">
+      <div class="role-tabs">
+        <div class="role-tab on" id="tabM" onclick="setRole('mahasiswa')">🎓 Mahasiswa</div>
+        <div class="role-tab" id="tabD" onclick="setRole('dosen')">👨‍🏫 Dosen</div>
+      </div>
+      <div class="auth-msg" id="authErr"></div>
+      <div class="auth-msg" id="authOk"></div>
+      <div class="dosen-info" id="dosenInfo"><strong>👨‍🏫 Akun Dosen</strong> — Login dengan akun yang telah disiapkan admin.</div>
+      <div id="fLogin">
+        <input class="inp" id="lEmail" placeholder="Alamat email" type="email" autocomplete="email">
+        <input class="inp" id="lPass" placeholder="Password" type="password" autocomplete="current-password">
+        <button class="btn-submit" id="loginBtn" onclick="doLogin()">Masuk</button>
+        <div style="text-align:center;margin-top:16px;font-size:13px;color:var(--muted)" id="switchLink">
+          Belum punya akun? <span style="color:var(--p);font-weight:600;cursor:pointer" onclick="toggleReg()">Daftar sekarang</span>
+        </div>
+      </div>
+      <div id="fReg" style="display:none">
+        <input class="inp" id="rNama" placeholder="Nama Lengkap">
+        <input class="inp" id="rNim" placeholder="NIM">
+        <input class="inp" id="rEmail" placeholder="Alamat email" type="email">
+        <input class="inp" id="rPass" placeholder="Password (min. 6 karakter)" type="password">
+        <input class="inp" id="rSem" placeholder="Semester" type="number" min="1" max="14">
+        <input class="inp" id="rProdi" placeholder="Program Studi">
+        <button class="btn-submit" onclick="doRegister()">Buat Akun</button>
+        <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--muted);cursor:pointer" onclick="toggleReg()">
+          Sudah punya akun? <span style="color:var(--p);font-weight:600">Masuk</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="sidebar" id="sidebar">
+    <div class="sb-brand">🎓 EduCampus</div>
+    <div class="sb-user">
+      <div class="sb-av" id="sbAv">?</div>
+      <div style="min-width:0">
+        <div class="sb-uname" id="sbName">...</div>
+        <div id="sbRole"></div>
+      </div>
+    </div>
+    <div class="sb-nav" id="navMenu"></div>
+  </div>
+
+  <div class="main">
+    <header class="topbar">
+      <button onclick="openSidebar()" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--ink);display:none" id="menuBtn">
+        <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="page-title" id="pageTitle">Dashboard</div>
+      <div id="topActions"></div>
+    </header>
+    <div class="content" id="content"></div>
+  </div>
+
+  <nav class="bottom-nav" id="bottomNav"></nav>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal" id="modalBox"></div>
+</div>
+<div class="toast" id="toast"></div>
+<div id="sbOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:44" onclick="closeSidebar()"></div>
+
+<script>
+  if(window.innerWidth<=768){
+    document.getElementById('menuBtn').style.display='block';
+  }
+</script>
+</body>
+</html>
