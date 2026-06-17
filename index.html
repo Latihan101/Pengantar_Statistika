@@ -94,17 +94,22 @@
     }
 
     async function startApp(u) {
-      user = u;
-      document.getElementById('screen-login').style.display = 'none';
-      const initials = (u.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
-      document.getElementById('sbAv').textContent = initials;
-      document.getElementById('sbName').textContent = u.nama;
-      document.getElementById('sbRole').textContent = u.role === 'dosen' ? 'Dosen' : 'NIM ' + (u.nim||'-');
-      try { const s = await getDoc(doc(db,'config','appConfig')); if(s.exists()) config = s.data(); } catch(e) {}
-      buildNav();
-      document.getElementById('app').style.display = 'flex';
-      go('dashboard');
-    }
+  user = u;
+  document.getElementById('screen-login').style.display = 'none';
+  const initials = (u.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+  document.getElementById('sbAv').textContent = initials;
+  document.getElementById('sbName').textContent = u.nama;
+  document.getElementById('sbRole').textContent = u.role === 'dosen' ? 'Dosen' : 'NIM ' + (u.nim||'-');
+  try { const s = await getDoc(doc(db,'config','appConfig')); if(s.exists()) config = s.data(); } catch(e) {}
+  try {
+    const seenSnap = await getDoc(doc(db,'chat_seen',u.id));
+    _lastSeenChat = seenSnap.exists() ? seenSnap.data().lastSeen : null;
+  } catch(e) { _lastSeenChat = null; }
+  buildNav();
+  document.getElementById('app').style.display = 'flex';
+  startUnreadChatListener();
+  go('dashboard');
+}
 
     function buildNav() {
       const dsn = [
@@ -155,6 +160,38 @@
     </div>
   </div>`;
     }
+
+    function startUnreadChatListener(){
+  if(_unreadChatUnsub){ _unreadChatUnsub(); _unreadChatUnsub = null; }
+  const q = query(collection(db,'chat'), orderBy('createdAt','desc'));
+  _unreadChatUnsub = onSnapshot(q, (snap) => {
+    let unreadCount = 0;
+    const lastSeenMs = _lastSeenChat?.toMillis ? _lastSeenChat.toMillis() : 0;
+    snap.forEach(d => {
+      const dat = d.data();
+      if(dat.pengirimId === user.id) return;
+      const createdMs = dat.createdAt?.toMillis ? dat.createdAt.toMillis() : 0;
+      if(createdMs > lastSeenMs) unreadCount++;
+    });
+    renderChatBadge(unreadCount);
+  }, (err) => console.error('Unread chat error:', err));
+}
+
+function renderChatBadge(count){
+  const navIcon = document.querySelector('#nav-chat .nav-ico');
+  const bnIcon = document.querySelector('#bn-chat .bn-ico');
+  [navIcon, bnIcon].forEach(el => {
+    if(!el) return;
+    el.querySelector('.unread-badge')?.remove();
+    if(count > 0){
+      el.style.position = 'relative';
+      const badge = document.createElement('span');
+      badge.className = 'unread-badge';
+      badge.textContent = count > 9 ? '9+' : count;
+      el.appendChild(badge);
+    }
+  });
+}
 
     function svgIcon(name) {
       const icons = {
@@ -269,7 +306,7 @@ window.closeSidebar = ()=>{
         showOk('Akun berhasil dibuat! Silakan login.'); toggleReg();
       } catch(e) { showErr('Gagal: '+e.message); }
     };
-    window.doLogout=async()=>{ if(_unsubNotif){_unsubNotif();_unsubNotif=null;} await signOut(auth); };
+    window.doLogout=async()=>{ if(_unsubNotif){_unsubNotif();_unsubNotif=null;} if(_unreadChatUnsub){_unreadChatUnsub();_unreadChatUnsub=null;} await signOut(auth); };
     function showErr(m){ const e=document.getElementById('authErr'); e.textContent=m; e.style.display='flex'; }
     function showOk(m){ const e=document.getElementById('authOk'); e.textContent=m; e.style.display='flex'; }
 
@@ -1896,9 +1933,12 @@ html += `
     // ── CHAT KELAS ────────────────────────────────────────────────
 let _chatUnsub = null;
 let _replyTarget = null;
+let _unreadChatUnsub = null;
+let _lastSeenChat = null;
 
 async function renderChat(){
   const namaMatkul = config.NAMA_MATKUL || 'Kelas';
+  markChatAsSeen();
   setContent(`
     <div style="display:flex;flex-direction:column;height:calc(100vh - var(--top) - var(--bot) - 32px);max-height:700px">
       <div style="background:linear-gradient(135deg,var(--p),#7c3aed);border-radius:var(--radius);padding:14px 16px;margin-bottom:12px;color:#fff;display:flex;align-items:center;gap:10px;flex-shrink:0">
@@ -1958,6 +1998,15 @@ window.cancelReply = () => {
   const box = document.getElementById('replyPreviewBox');
   if(box){ box.innerHTML = ''; box.style.display = 'none'; }
 };
+
+async function markChatAsSeen(){
+  const now = serverTimestamp();
+  try {
+    await setDoc(doc(db,'chat_seen',user.id), { lastSeen: now });
+    _lastSeenChat = { toMillis: () => Date.now() };
+    renderChatBadge(0);
+  } catch(e) { console.error('Gagal update chat_seen:', e); }
+}
 
 let _longPressTimer = null;
 let _longPressFired = false;
@@ -2260,6 +2309,8 @@ window.hapusChat = async (msgId) => {
     .bn-item { display: flex; flex-direction: column; align-items: center; padding: 10px 4px 6px; cursor: pointer; font-size: 10px; font-weight: 500; gap: 3px; color: var(--muted); min-width: 0; transition: color .15s; }
     .bn-item.on { color: var(--p); }
     .bn-ico { display: flex; align-items: center; justify-content: center; }
+    .unread-badge {position: absolute;top: -4px;right: -6px;background: var(--r);color: #fff;font-size: 9px;font-weight: 700;min-width: 16px;height: 16px;border-radius: 8px;display: flex;align-items: center;justify-content: center;padding: 0 3px;line-height: 1;border: 1.5px solid #fff;}
+    .nav-ico { position: relative; }
     .sb-brand { padding: 20px 16px 16px; color: #fff; font-weight: 800; font-size: 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255,255,255,.06); }
     .sb-user { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.06); }
     .sb-av { width: 38px; height: 38px; border-radius: 10px; background: var(--p); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
