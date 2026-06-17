@@ -11,7 +11,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
     import { getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, collection, query, where, orderBy, serverTimestamp, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -97,7 +97,11 @@
   user = u;
   document.getElementById('screen-login').style.display = 'none';
   const initials = (u.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+if(u.fotoUrl){
+  document.getElementById('sbAv').innerHTML = `<img src="${u.fotoUrl}" style="width:100%;height:100%;border-radius:10px;object-fit:cover">`;
+} else {
   document.getElementById('sbAv').textContent = initials;
+}
   document.getElementById('sbName').textContent = u.nama;
   document.getElementById('sbRole').textContent = u.role === 'dosen' ? 'Dosen' : 'NIM ' + (u.nim||'-');
   try { const s = await getDoc(doc(db,'config','appConfig')); if(s.exists()) config = s.data(); } catch(e) {}
@@ -1264,13 +1268,14 @@ window.hapusPertemuan = async (prtId, topik) => {
       const absMap={};allAbsSnap.forEach(d=>{const dat=d.data();if(!absMap[dat.mahasiswaId])absMap[dat.mahasiswaId]=[];absMap[dat.mahasiswaId].push(dat.status);});
       const nilaiMap={};allNilaiSnap.forEach(d=>{nilaiMap[d.id]=d.data();});
       setContent(`
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
-          <div class="section-title" style="flex:1">${list.length} Mahasiswa Terdaftar</div>
-          <div style="position:relative">
-            <input class="inp" id="cariMhs" placeholder="Cari nama / NIM..." style="margin:0;padding-left:36px;width:220px" oninput="filterMhs()">
-            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted)">${svgIcon('search')}</span>
-          </div>
-        </div>
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+    <div class="section-title" style="flex:1">${list.length} Mahasiswa Terdaftar</div>
+    <div style="position:relative">
+      <input class="inp" id="cariMhs" placeholder="Cari nama / NIM..." style="margin:0;padding-left:36px;width:220px" oninput="filterMhs()">
+      <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted)">${svgIcon('search')}</span>
+    </div>
+    <button class="btn-action btn-primary" onclick="tambahMhsBaru()">${svgIcon('plus')} Tambah Mahasiswa</button>
+  </div>
         <div class="mhs-table-wrap">
           <table class="mhs-table" id="mhsTable">
             <thead><tr><th>No</th><th>Nama</th><th>NIM</th><th>Prodi</th><th>Sem</th><th>Kehadiran</th><th>Nilai</th><th>Aksi</th></tr></thead>
@@ -1287,7 +1292,11 @@ window.hapusPertemuan = async (prtId, topik) => {
                   <td style="text-align:center">${m.semester||'-'}</td>
                   <td><div style="font-weight:700;color:${pctColor}">${pct}%</div><div style="font-size:11px;color:var(--muted)">${hadir}/${total} pertemuan</div></td>
                   <td><span style="font-weight:700;font-size:16px;color:${nilai!=='-'?(parseInt(nilai)>=70?'var(--g)':parseInt(nilai)>=50?'var(--a)':'var(--r)'):'var(--muted)'}">${nilai}</span></td>
-                  <td><button class="btn-action btn-secondary" onclick="lihatDetailMhs('${m.id}','${(m.nama||'').replace(/'/g,"\\'")}')">Detail</button></td>
+                  <td style="display:flex;gap:6px">
+                    <button class="btn-action btn-secondary" onclick="lihatDetailMhs('${m.id}','${(m.nama||'').replace(/'/g,"\\'")}')">Detail</button>
+                    <button class="btn-action btn-secondary" onclick="editDataMhs('${m.id}')">${svgIcon('edit')}</button>
+                    <button class="btn-action btn-danger" onclick="hapusDataMhs('${m.id}','${(m.nama||'').replace(/'/g,"\\'")}')">${svgIcon('trash')}</button>
+                  </td>
                 </tr>`;
               }).join('')}
             </tbody>
@@ -1299,6 +1308,91 @@ window.hapusPertemuan = async (prtId, topik) => {
       const q=document.getElementById('cariMhs').value.toLowerCase();
       document.querySelectorAll('#mhsTbody tr').forEach(row=>{const nama=row.dataset.nama||'';const nim=row.dataset.nim||'';row.style.display=(nama.includes(q)||nim.includes(q))?'':'none';});
     };
+
+    // -- Tambah/kurang/edit mahasiswa untuk dosen
+    window.editDataMhs = async (mhsId) => {
+  const snap = await getDoc(doc(db,'users',mhsId));
+  if(!snap.exists()) return toast('❌ Data mahasiswa tidak ditemukan');
+  const m = snap.data();
+  openModal('Edit Data Mahasiswa', `
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Nama Lengkap</label>
+    <input class="inp" id="editMhsNama" value="${(m.nama||'').replace(/"/g,'&quot;')}">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">NIM</label>
+    <input class="inp" id="editMhsNim" value="${(m.nim||'').replace(/"/g,'&quot;')}">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Program Studi</label>
+    <input class="inp" id="editMhsProdi" value="${(m.prodi||'').replace(/"/g,'&quot;')}">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Semester</label>
+    <input class="inp" type="number" id="editMhsSemester" min="1" max="14" value="${m.semester||1}">
+    <button class="btn-submit" onclick="simpanEditMhs('${mhsId}')">Simpan Perubahan</button>
+  `);
+};
+
+window.simpanEditMhs = async (mhsId) => {
+  const nama = document.getElementById('editMhsNama').value.trim();
+  const nim = document.getElementById('editMhsNim').value.trim();
+  const prodi = document.getElementById('editMhsProdi').value.trim();
+  const semester = parseInt(document.getElementById('editMhsSemester').value) || 1;
+  if(!nama || !nim) return toast('⚠️ Nama dan NIM wajib diisi');
+  try {
+    await updateDoc(doc(db,'users',mhsId), { nama, nim, prodi, semester });
+    toast('✅ Data mahasiswa diperbarui!');
+    closeModal();
+    await renderMahasiswa();
+  } catch(e){
+    toast('❌ Gagal: '+e.message);
+  }
+};
+
+window.hapusDataMhs = async (mhsId, nama) => {
+  if(!confirm(`Hapus mahasiswa "${nama}"?\n\nIni hanya menghapus data profil dari sistem. Akun login (email) tidak otomatis terhapus dan harus dihapus manual lewat Firebase Authentication jika diperlukan.\n\nData absensi, nilai, dan pengumpulan tugas mahasiswa ini TIDAK ikut terhapus otomatis.`)) return;
+  try {
+    await deleteDoc(doc(db,'users',mhsId));
+    toast('🗑️ Data mahasiswa dihapus');
+    await renderMahasiswa();
+  } catch(e){
+    toast('❌ Gagal: '+e.message);
+  }
+};
+
+window.tambahMhsBaru = () => {
+  openModal('Tambah Mahasiswa Baru', `
+    <div class="card" style="background:#fffbeb;border:1px solid #fde68a;margin-bottom:14px">
+      <div style="font-size:12px;color:var(--a);line-height:1.6">⚠️ Ini hanya membuat data profil mahasiswa. Mahasiswa tetap perlu mendaftar akun login sendiri lewat halaman registrasi menggunakan email yang sama, atau Anda bisa buat akun login manual lewat Firebase Authentication.</div>
+    </div>
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Nama Lengkap</label>
+    <input class="inp" id="addMhsNama" placeholder="Nama mahasiswa">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">NIM</label>
+    <input class="inp" id="addMhsNim" placeholder="Nomor Induk Mahasiswa">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Email</label>
+    <input class="inp" type="email" id="addMhsEmail" placeholder="email@contoh.com">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Program Studi</label>
+    <input class="inp" id="addMhsProdi" placeholder="Contoh: Sistem Informasi">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Semester</label>
+    <input class="inp" type="number" id="addMhsSemester" min="1" max="14" value="1">
+    <button class="btn-submit" onclick="simpanMhsBaru()">Simpan Data Mahasiswa</button>
+  `);
+};
+
+window.simpanMhsBaru = async () => {
+  const nama = document.getElementById('addMhsNama').value.trim();
+  const nim = document.getElementById('addMhsNim').value.trim();
+  const email = document.getElementById('addMhsEmail').value.trim();
+  const prodi = document.getElementById('addMhsProdi').value.trim();
+  const semester = parseInt(document.getElementById('addMhsSemester').value) || 1;
+  if(!nama || !nim || !email) return toast('⚠️ Nama, NIM, dan email wajib diisi');
+  try {
+    const existing = await getDocs(query(collection(db,'users'), where('nim','==',nim)));
+    if(!existing.empty) return toast('⚠️ NIM ini sudah terdaftar');
+    await addDoc(collection(db,'users'), {
+      nama, nim, email, prodi, semester, role: 'mahasiswa', createdAt: new Date()
+    });
+    toast('✅ Data mahasiswa ditambahkan! Mahasiswa perlu mendaftar akun login terpisah.');
+    closeModal();
+    await renderMahasiswa();
+  } catch(e){
+    toast('❌ Gagal: '+e.message);
+  }
+};
 
     window.lihatDetailMhs=async(mhsId,namaMhs)=>{
       const [mhsSnap,allAbsSnap,nilaiSnap]=await Promise.all([getDoc(doc(db,'users',mhsId)),getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',mhsId))),getDoc(doc(db,'nilai_akhir',mhsId))]);
@@ -2238,22 +2332,93 @@ window.hapusChat = async (msgId) => {
     window.hapusNotif=async(notifId)=>{await deleteDoc(doc(db,'notifikasi',notifId));toast('🗑️ Notifikasi dihapus');await loadNotif();};
 
     async function renderProfil(){
-      try{
-        const inisial=(user?.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
-        setContent(`
-          <div class="profil-card">
-            <div class="profil-av">${inisial}</div>
-            <div class="profil-nama">${user?.nama||'-'}</div>
-            <div class="profil-email">${user?.email||'-'}</div>
-            <div class="profil-badge">${user?.role==='dosen'?'👨‍🏫 Dosen':'🎓 Mahasiswa'}</div>
-            ${user?.nim?`<div class="profil-detail">NIM: ${user.nim}</div>`:''}
-            ${user?.prodi?`<div class="profil-detail">Prodi: ${user.prodi}</div>`:''}
-            ${user?.semester?`<div class="profil-detail">Semester: ${user.semester}</div>`:''}
-            <button class="btn-submit" style="margin-top:20px;max-width:200px;margin-left:auto;margin-right:auto" onclick="doLogout()">Keluar</button>
-          </div>`);
-      }catch(e){setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat profil</h3><p>${e.message}</p></div>`);}
-    }
+  try{
+    const inisial=(user?.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+    const fotoHtml = user?.fotoUrl
+      ? `<img src="${user.fotoUrl}" style="width:72px;height:72px;border-radius:20px;object-fit:cover;margin:0 auto 16px;display:block">`
+      : `<div class="profil-av">${inisial}</div>`;
+    setContent(`
+      <div class="profil-card">
+        <div style="position:relative;display:inline-block">
+          ${fotoHtml}
+          <button onclick="document.getElementById('fotoProfilInput').click()" style="position:absolute;bottom:14px;right:-6px;background:var(--p);border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff">${svgIcon('edit')}</button>
+          <input type="file" id="fotoProfilInput" accept="image/*" style="display:none" onchange="uploadFotoProfil(this)">
+        </div>
+        <div class="profil-nama">${user?.nama||'-'}</div>
+        <div class="profil-email">${user?.email||'-'}</div>
+        <div class="profil-badge">${user?.role==='dosen'?'👨‍🏫 Dosen':'🎓 Mahasiswa'}</div>
+        ${user?.nim?`<div class="profil-detail">NIM: ${user.nim}</div>`:''}
+        ${user?.prodi?`<div class="profil-detail">Prodi: ${user.prodi}</div>`:''}
+        ${user?.semester?`<div class="profil-detail">Semester: ${user.semester}</div>`:''}
 
+        <div style="margin-top:20px;text-align:left">
+          <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Nama Lengkap</label>
+          <input class="inp" id="editNama" value="${(user?.nama||'').replace(/"/g,'&quot;')}">
+          <button class="btn-submit" onclick="simpanProfilNama()">Simpan Nama</button>
+        </div>
+
+        <div style="margin-top:16px;text-align:left;border-top:1px solid var(--border);padding-top:16px">
+          <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Ganti Password</label>
+          <input class="inp" type="password" id="passwordBaru" placeholder="Password baru (min. 6 karakter)">
+          <input class="inp" type="password" id="passwordKonfirmasi" placeholder="Konfirmasi password baru">
+          <button class="btn-submit" style="background:var(--a)" onclick="gantiPassword()">Ganti Password</button>
+        </div>
+
+        <button class="btn-submit" style="margin-top:16px;background:var(--r)" onclick="doLogout()">Keluar</button>
+      </div>`);
+  }catch(e){setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat profil</h3><p>${e.message}</p></div>`);}
+}
+
+    window.uploadFotoProfil = async (input) => {
+  const file = input.files[0];
+  if(!file) return;
+  if(!file.type.startsWith('image/')) return toast('⚠️ Pilih file gambar');
+  toast('⏳ Mengupload foto...');
+  try {
+    const result = await window._uploadToDrive(file, 'profil_'+user.id, ()=>{});
+    await updateDoc(doc(db,'users',user.id), { fotoUrl: result.viewUrl });
+    user.fotoUrl = result.viewUrl;
+    document.getElementById('sbAv').innerHTML = `<img src="${result.viewUrl}" style="width:100%;height:100%;border-radius:10px;object-fit:cover">`;
+    toast('✅ Foto profil diperbarui!');
+    await renderProfil();
+  } catch(e){
+    toast('❌ Gagal upload: '+e.message);
+  }
+};
+
+window.simpanProfilNama = async () => {
+  const namaBaru = document.getElementById('editNama').value.trim();
+  if(!namaBaru) return toast('⚠️ Nama tidak boleh kosong');
+  try {
+    await updateDoc(doc(db,'users',user.id), { nama: namaBaru });
+    user.nama = namaBaru;
+    document.getElementById('sbName').textContent = namaBaru;
+    toast('✅ Nama berhasil diperbarui!');
+    await renderProfil();
+  } catch(e){
+    toast('❌ Gagal: '+e.message);
+  }
+};
+
+window.gantiPassword = async () => {
+  const pwBaru = document.getElementById('passwordBaru').value;
+  const pwKonfirmasi = document.getElementById('passwordKonfirmasi').value;
+  if(!pwBaru || pwBaru.length < 6) return toast('⚠️ Password minimal 6 karakter');
+  if(pwBaru !== pwKonfirmasi) return toast('⚠️ Konfirmasi password tidak sama');
+  try {
+    await updatePassword(auth.currentUser, pwBaru);
+    toast('✅ Password berhasil diganti!');
+    document.getElementById('passwordBaru').value = '';
+    document.getElementById('passwordKonfirmasi').value = '';
+  } catch(e){
+    if(e.code === 'auth/requires-recent-login'){
+      toast('⚠️ Demi keamanan, silakan logout dan login ulang sebelum mengganti password');
+    } else {
+      toast('❌ Gagal: '+e.message);
+    }
+  }
+};
+    
     async function renderPengaturan(){
   if(user.role !== 'dosen'){
     setContent(`<div class="empty"><div class="empty-ico">🔒</div><h3>Akses Terbatas</h3><p>Halaman ini hanya untuk dosen.</p></div>`);
