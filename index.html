@@ -1959,6 +1959,55 @@ window.cancelReply = () => {
   if(box){ box.innerHTML = ''; box.style.display = 'none'; }
 };
 
+let _longPressTimer = null;
+let _longPressFired = false;
+
+window.startLongPress = (e, msgId, nama, isi, canDelete) => {
+  _longPressFired = false;
+  _longPressTimer = setTimeout(() => {
+    _longPressFired = true;
+    if(navigator.vibrate) navigator.vibrate(10);
+    showChatMenu(e, msgId, nama, isi, canDelete);
+  }, 450);
+};
+
+window.cancelLongPress = () => {
+  if(_longPressTimer){ clearTimeout(_longPressTimer); _longPressTimer = null; }
+};
+
+window.showChatMenu = (e, msgId, nama, isi, canDelete) => {
+  e.preventDefault?.();
+  document.getElementById('chatContextMenu')?.remove();
+  const touch = e.changedTouches ? e.changedTouches[0] : e;
+  const x = touch ? touch.clientX : 100;
+  const y = touch ? touch.clientY : 100;
+
+  const menuWidth = 150;
+  const menuHeight = canDelete ? 92 : 46;
+  const left = Math.min(Math.max(x - menuWidth/2, 8), window.innerWidth - menuWidth - 8);
+  const top = Math.min(y, window.innerHeight - menuHeight - 80);
+
+  const menu = document.createElement('div');
+  menu.id = 'chatContextMenu';
+  menu.style.cssText = `position:fixed;z-index:300;background:#fff;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden;min-width:${menuWidth}px;left:${left}px;top:${top}px;animation:slideUp .15s ease`;
+  menu.innerHTML = `
+    <div onclick="setReplyTarget('${msgId}','${nama}','${isi}');closeChatMenu()" style="padding:13px 16px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;display:flex;align-items:center;gap:10px;${canDelete?'border-bottom:1px solid var(--border)':''}">${svgIcon('reply')} Balas</div>
+    ${canDelete?`<div onclick="hapusChat('${msgId}');closeChatMenu()" style="padding:13px 16px;font-size:13px;font-weight:600;color:var(--r);cursor:pointer;display:flex;align-items:center;gap:10px">${svgIcon('trash')} Hapus</div>`:''}
+  `;
+  document.body.appendChild(menu);
+
+  const backdrop = document.createElement('div');
+  backdrop.id = 'chatContextBackdrop';
+  backdrop.style.cssText = 'position:fixed;inset:0;z-index:299;background:rgba(0,0,0,.15)';
+  backdrop.onclick = closeChatMenu;
+  document.body.appendChild(backdrop);
+};
+
+window.closeChatMenu = () => {
+  document.getElementById('chatContextMenu')?.remove();
+  document.getElementById('chatContextBackdrop')?.remove();
+};
+
 function startChatListener(){
   if(_chatUnsub){ _chatUnsub(); _chatUnsub = null; }
   const q = query(collection(db,'chat'), orderBy('createdAt','asc'));
@@ -2000,13 +2049,9 @@ function startChatListener(){
       const showAvatar = !isMe && (m.pengirimId !== lastSenderId || selisihWaktu > 3);
       lastSenderId = m.pengirimId;
       lastSenderTime = tgl;
-      const tombolHapus = (user.role==='dosen'||m.pengirimId===user.id)
-  ? `<button onclick="hapusChat('${m.id}')" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0;opacity:.5;line-height:1" title="Hapus">${svgIcon('trash')}</button>`
-  : '';
-const namaPengirimEsc = (m.pengirimNama||'').replace(/'/g,"\\'");
-const isiEsc = (m.isi||'').replace(/'/g,"\\'").replace(/\n/g,' ');
-const tombolReply = `<button onclick="setReplyTarget('${m.id}','${namaPengirimEsc}','${isiEsc}')" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0;opacity:.5;line-height:1" title="Balas">${svgIcon('reply')}</button>`;
-  
+      const namaPengirimEsc = (m.pengirimNama||'').replace(/'/g,"\\'");
+      const isiEsc = (m.isi||'').replace(/'/g,"\\'").replace(/\n/g,' ');
+      const canDelete = (user.role==='dosen'||m.pengirimId===user.id);
       
   if(isMe){
   const replyPreviewMe = m.replyTo ? `
@@ -2017,14 +2062,12 @@ const tombolReply = `<button onclick="setReplyTarget('${m.id}','${namaPengirimEs
   html += `
     <div style="display:flex;justify-content:flex-end;align-items:flex-end;gap:6px;margin-bottom:1px" id="msg_${m.id}">
       <div style="max-width:72%">
-        <div style="background:var(--p);color:#fff;border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:14px;line-height:1.5;word-break:break-word;box-shadow:0 1px 4px rgba(79,70,229,.25)">
+        <div oncontextmenu="event.preventDefault();showChatMenu(event,'${m.id}','${namaPengirimEsc}','${isiEsc}',${canDelete})" ontouchstart="startLongPress(event,'${m.id}','${namaPengirimEsc}','${isiEsc}',${canDelete})" ontouchend="cancelLongPress()" ontouchmove="cancelLongPress()" style="background:var(--p);color:#fff;border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:14px;line-height:1.5;word-break:break-word;box-shadow:0 1px 4px rgba(79,70,229,.25);cursor:pointer;user-select:none;-webkit-user-select:none">
           ${replyPreviewMe}
           ${escapeHtml(m.isi)}
         </div>
         <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:3px">
-          <span style="font-size:10px;color:var(--muted)">${jamStr}</span>
-          ${tombolReply}
-          ${tombolHapus}
+           <span style="font-size:10px;color:var(--muted)">${jamStr}</span>
         </div>
       </div>
     </div>`;
@@ -2041,14 +2084,12 @@ const tombolReply = `<button onclick="setReplyTarget('${m.id}','${namaPengirimEs
       </div>
       <div style="max-width:72%">
         ${showAvatar?`<div style="font-size:11px;font-weight:700;color:${isDosen?'var(--p)':'var(--ink2)'};margin-bottom:3px;padding-left:2px">${m.pengirimNama}${isDosen?' 👨‍🏫':''}</div>`:''}
-        <div style="background:${isDosen?'var(--pl)':'#fff'};border:1px solid ${isDosen?'rgba(79,70,229,.25)':'var(--border)'};border-radius:16px 16px 16px 4px;padding:10px 14px;font-size:14px;line-height:1.5;word-break:break-word;box-shadow:var(--shadow)">
+        <div oncontextmenu="event.preventDefault();showChatMenu(event,'${m.id}','${namaPengirimEsc}','${isiEsc}',${canDelete})" ontouchstart="startLongPress(event,'${m.id}','${namaPengirimEsc}','${isiEsc}',${canDelete})" ontouchend="cancelLongPress()" ontouchmove="cancelLongPress()" style="background:${isDosen?'var(--pl)':'#fff'};border:1px solid ${isDosen?'rgba(79,70,229,.25)':'var(--border)'};border-radius:16px 16px 16px 4px;padding:10px 14px;font-size:14px;line-height:1.5;word-break:break-word;box-shadow:var(--shadow);cursor:pointer;user-select:none;-webkit-user-select:none">
           ${replyPreviewLain}
           ${escapeHtml(m.isi)}
         </div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:3px;padding-left:2px">
           <span style="font-size:10px;color:var(--muted)">${jamStr}</span>
-          ${tombolReply}
-          ${tombolHapus}
         </div>
       </div>
     </div>`;
