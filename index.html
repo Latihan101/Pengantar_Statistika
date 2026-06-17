@@ -2473,30 +2473,33 @@ window.hapusChat = async (msgId) => {
         ${user?.prodi?`<div class="profil-detail">Prodi: ${user.prodi}</div>`:''}
         ${user?.semester?`<div class="profil-detail">Semester: ${user.semester}</div>`:''}
 
-        <div style="margin-top:20px;text-align:left">
-          <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Nama Lengkap</label>
-          <input class="inp" id="editNama" value="${(user?.nama||'').replace(/"/g,'&quot;')}">
-          <button class="btn-submit" onclick="simpanProfilNama()">Simpan Nama</button>
-        </div>
+        <button class="btn-action btn-secondary" style="width:100%;justify-content:center;margin-top:18px;padding:10px 0" onclick="bukaEditProfil()">${svgIcon('edit')} Edit Profil</button>
 
-        <div style="margin-top:16px;text-align:left;border-top:1px solid var(--border);padding-top:16px">
-          <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Ganti Password</label>
-          <div style="position:relative;margin-bottom:12px">
-  <input class="inp" id="passwordBaru" type="password" placeholder="Password baru (min. 6 karakter)" style="padding-right:44px;margin:0">
-  <button id="eye_passwordBaru" onclick="togglePass('passwordBaru')" type="button" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);display:flex;align-items:center;padding:0"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-</div>
-<div style="position:relative;margin-bottom:12px">
-  <input class="inp" id="passwordKonfirmasi" type="password" placeholder="Konfirmasi password baru" style="padding-right:44px;margin:0">
-  <button id="eye_passwordKonfirmasi" onclick="togglePass('passwordKonfirmasi')" type="button" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);display:flex;align-items:center;padding:0"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-</div>
-          <button class="btn-submit" style="background:var(--a)" onclick="gantiPassword()">Ganti Password</button>
-        </div>
-
-        <button class="btn-submit" style="margin-top:16px;background:var(--r)" onclick="doLogout()">Keluar</button>
+        <button class="btn-submit" style="margin-top:10px;background:var(--r)" onclick="doLogout()">Keluar</button>
       </div>`);
   }catch(e){setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat profil</h3><p>${e.message}</p></div>`);}
 }
 
+window.bukaEditProfil = () => {
+  openModal('Edit Profil', `
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Nama Lengkap</label>
+    <input class="inp" id="editNama" value="${(user?.nama||'').replace(/"/g,'&quot;')}">
+    <button class="btn-submit" onclick="simpanProfilNama()">Simpan Nama</button>
+
+    <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:18px">
+      <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Ganti Password</label>
+      <div style="position:relative;margin-bottom:12px">
+        <input class="inp" id="passwordBaru" type="password" placeholder="Password baru (min. 6 karakter)" style="padding-right:44px;margin:0">
+        <button id="eye_passwordBaru" onclick="togglePass('passwordBaru')" type="button" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);display:flex;align-items:center;padding:0">${svgIcon('eye')}</button>
+      </div>
+      <div style="position:relative;margin-bottom:12px">
+        <input class="inp" id="passwordKonfirmasi" type="password" placeholder="Konfirmasi password baru" style="padding-right:44px;margin:0">
+        <button id="eye_passwordKonfirmasi" onclick="togglePass('passwordKonfirmasi')" type="button" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);display:flex;align-items:center;padding:0">${svgIcon('eye')}</button>
+      </div>
+      <button class="btn-submit" style="background:var(--a)" onclick="gantiPassword()">Ganti Password</button>
+    </div>
+  `);
+};
     window.uploadFotoProfil = async (input) => {
   const file = input.files[0];
   if(!file) return;
@@ -2522,6 +2525,7 @@ window.simpanProfilNama = async () => {
     user.nama = namaBaru;
     document.getElementById('sbName').textContent = namaBaru;
     toast('✅ Nama berhasil diperbarui!');
+    closeModal();
     await renderProfil();
   } catch(e){
     toast('❌ Gagal: '+e.message);
@@ -2546,6 +2550,7 @@ window.gantiPassword = async () => {
     toast('✅ Password berhasil diganti!');
     document.getElementById('passwordBaru').value = '';
     document.getElementById('passwordKonfirmasi').value = '';
+    closeModal();
   } catch(e){
     if(e.code === 'auth/requires-recent-login'){
       toast('⚠️ Demi keamanan, silakan logout dan login ulang sebelum mengganti password');
