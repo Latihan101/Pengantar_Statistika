@@ -148,7 +148,11 @@ async function loadDaftarKelas(){
       NAMA_MATKUL: _kelasAktif.namaMatkul,
       SKS: _kelasAktif.sks,
       JADWAL: _kelasAktif.jadwal,
-      RUANG: _kelasAktif.ruang
+      RUANG: _kelasAktif.ruang,
+      BOBOT_UTS: _kelasAktif.bobotUTS ?? 30,
+      BOBOT_UAS: _kelasAktif.bobotUAS ?? 40,
+      BOBOT_TUGAS: _kelasAktif.bobotTugas ?? 20,
+      BOBOT_KUIS: _kelasAktif.bobotKuis ?? 10,
     };
   } else {
     config = {};
@@ -184,7 +188,11 @@ window.gantiKelasAktif = async (newKelasId) => {
     NAMA_MATKUL: _kelasAktif.namaMatkul,
     SKS: _kelasAktif.sks,
     JADWAL: _kelasAktif.jadwal,
-    RUANG: _kelasAktif.ruang
+    RUANG: _kelasAktif.ruang,
+    BOBOT_UTS: _kelasAktif.bobotUTS ?? 30,
+    BOBOT_UAS: _kelasAktif.bobotUAS ?? 40,
+    BOBOT_TUGAS: _kelasAktif.bobotTugas ?? 20,
+    BOBOT_KUIS: _kelasAktif.bobotKuis ?? 10,
   };
   try {
     const seenSnap = await getDoc(doc(db,'chat_seen',user.id+'_'+kelasId()));
@@ -194,6 +202,21 @@ window.gantiKelasAktif = async (newKelasId) => {
   toast('🔄 Kelas aktif: '+_kelasAktif.namaMatkul);
   go('dashboard');
 };
+
+function hitungNilaiAkhir(n, bobot){
+  const komponen = [
+    {nilai: n.nilaiUTS,   bobot: bobot.BOBOT_UTS},
+    {nilai: n.nilaiUAS,   bobot: bobot.BOBOT_UAS},
+    {nilai: n.nilaiTugas, bobot: bobot.BOBOT_TUGAS},
+    {nilai: n.nilaiKuis,  bobot: bobot.BOBOT_KUIS},
+  ].filter(k => k.nilai !== null && k.nilai !== undefined && !isNaN(k.nilai));
+
+  if(komponen.length === 0) return null;
+  const totalBobot = komponen.reduce((s,k)=>s+k.bobot,0);
+  if(totalBobot === 0) return null;
+  const totalNilai = komponen.reduce((s,k)=>s+(k.nilai*k.bobot),0);
+  return Math.round(totalNilai/totalBobot);
+}
 
     function buildNav() {
       const dsn = [
@@ -1546,15 +1569,48 @@ window.simpanMhsBaru = async () => {
   const uas=document.getElementById('editNilaiUAS_'+mhsId)?.value.trim();
   const tugas=document.getElementById('editNilaiTugas_'+mhsId)?.value.trim();
   const kuis=document.getElementById('editNilaiKuis_'+mhsId)?.value.trim();
+
+  const nilaiObj = {
+    nilaiUTS: uts?parseFloat(uts):null,
+    nilaiUAS: uas?parseFloat(uas):null,
+    nilaiTugas: tugas?parseFloat(tugas):null,
+    nilaiKuis: kuis?parseFloat(kuis):null,
+  };
+  const nilaiAkhir = hitungNilaiAkhir(nilaiObj, config);
+
   await setDoc(doc(db,'nilai_akhir',mhsId+'_'+kelasId()),{
     mahasiswaId:mhsId, kelasId:kelasId(),
-    nilaiUTS:uts?parseFloat(uts):null,
-    nilaiUAS:uas?parseFloat(uas):null,
-    nilaiTugas:tugas?parseFloat(tugas):null,
-    nilaiKuis:kuis?parseFloat(kuis):null,
+    ...nilaiObj,
+    nilaiAkhir,
     updatedAt:serverTimestamp()
   },{merge:true});
   toast('✅ Nilai disimpan!');
+};
+
+window.rekalkulasiNilaiAkhir = async (kId) => {
+  const k = _daftarKelas.find(x=>x.id===kId);
+  if(!k) return;
+  if(!confirm(`Hitung ulang Nilai Akhir semua mahasiswa di kelas "${k.namaMatkul}" menggunakan bobot saat ini?`)) return;
+  toast('⏳ Menghitung ulang nilai akhir...');
+  try {
+    const bobot = {
+      BOBOT_UTS: k.bobotUTS ?? 30,
+      BOBOT_UAS: k.bobotUAS ?? 40,
+      BOBOT_TUGAS: k.bobotTugas ?? 20,
+      BOBOT_KUIS: k.bobotKuis ?? 10,
+    };
+    const snap = await getDocs(query(collection(db,'nilai_akhir'), where('kelasId','==',kId)));
+    let count = 0;
+    for(const d of snap.docs){
+      const n = d.data();
+      const nilaiAkhir = hitungNilaiAkhir(n, bobot);
+      await updateDoc(doc(db,'nilai_akhir',d.id), { nilaiAkhir, updatedAt: serverTimestamp() });
+      count++;
+    }
+    toast(`✅ ${count} data nilai akhir diperbarui!`);
+  } catch(e){
+    toast('❌ Gagal rekalkulasi: '+e.message);
+  }
 };
 
     // --Download nilai rekap
@@ -1970,17 +2026,24 @@ html += `
         </div>`);
     }
 
-    window.simpanNilai=async(mhsId)=>{
-  const uts=document.getElementById('n_uts_'+mhsId)?.value.trim();
-  const uas=document.getElementById('n_uas_'+mhsId)?.value.trim();
-  const tugas=document.getElementById('n_tugas_'+mhsId)?.value.trim();
-  const kuis=document.getElementById('n_kuis_'+mhsId)?.value.trim();
+    window.simpanNilai = async (mhsId) => {
+  const uts = document.getElementById('n_uts_'+mhsId)?.value.trim();
+  const uas = document.getElementById('n_uas_'+mhsId)?.value.trim();
+  const tugas = document.getElementById('n_tugas_'+mhsId)?.value.trim();
+  const kuis = document.getElementById('n_kuis_'+mhsId)?.value.trim();
+
+  const nilaiObj = {
+    nilaiUTS: uts?parseFloat(uts):null,
+    nilaiUAS: uas?parseFloat(uas):null,
+    nilaiTugas: tugas?parseFloat(tugas):null,
+    nilaiKuis: kuis?parseFloat(kuis):null,
+  };
+  const nilaiAkhir = hitungNilaiAkhir(nilaiObj, config);
+
   await setDoc(doc(db,'nilai_akhir',mhsId+'_'+kelasId()),{
     mahasiswaId:mhsId, kelasId:kelasId(),
-    nilaiUTS:uts?parseFloat(uts):null,
-    nilaiUAS:uas?parseFloat(uas):null,
-    nilaiTugas:tugas?parseFloat(tugas):null,
-    nilaiKuis:kuis?parseFloat(kuis):null,
+    ...nilaiObj,
+    nilaiAkhir,
     updatedAt:serverTimestamp()
   },{merge:true});
   toast('✅ Nilai disimpan!');
@@ -2600,10 +2663,11 @@ async function renderPengaturan(){
             </div>
             <div style="font-size:11px;color:var(--muted)">Bagikan kode ini ke mahasiswa</div>
           </div>
-          <div style="display:flex;gap:8px;margin-top:10px">
-            ${!aktif?`<button class="btn-action btn-secondary" onclick="gantiKelasAktif('${k.id}')">Jadikan Aktif</button>`:''}
-            <button class="btn-action btn-secondary" onclick="editKelas('${k.id}')">${svgIcon('edit')} Edit Info</button>
-          </div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+  ${!aktif?`<button class="btn-action btn-secondary" onclick="gantiKelasAktif('${k.id}')">Jadikan Aktif</button>`:''}
+  <button class="btn-action btn-secondary" onclick="editKelas('${k.id}')">${svgIcon('edit')} Edit Info</button>
+  <button class="btn-action btn-secondary" onclick="rekalkulasiNilaiAkhir('${k.id}')">🔄 Rekalkulasi Nilai Akhir</button>
+</div>
         </div>`;
     });
     html += `</div>`;
@@ -2667,8 +2731,33 @@ window.bukaFormKelasBaru = () => {
     <input class="inp" id="newKelasJadwal" placeholder="Contoh: Senin, 08:00 - 10:30">
     <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">🚪 Ruang</label>
     <input class="inp" id="newKelasRuang" placeholder="Contoh: Lab Komputer 2">
+
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">⚖️ Bobot Penilaian (%)</label>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:6px">
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">UTS</div><input class="inp" type="number" id="newBobotUTS" value="30" min="0" max="100" style="margin:0" oninput="cekTotalBobot('new')"></div>
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">UAS</div><input class="inp" type="number" id="newBobotUAS" value="40" min="0" max="100" style="margin:0" oninput="cekTotalBobot('new')"></div>
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Tugas</div><input class="inp" type="number" id="newBobotTugas" value="20" min="0" max="100" style="margin:0" oninput="cekTotalBobot('new')"></div>
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Kuis</div><input class="inp" type="number" id="newBobotKuis" value="10" min="0" max="100" style="margin:0" oninput="cekTotalBobot('new')"></div>
+    </div>
+    <div id="totalBobotNew" style="font-size:12px;font-weight:600;color:var(--g);margin-bottom:14px">Total: 100%</div>
+
     <button class="btn-submit" onclick="simpanKelasBaru()">Buat Kelas</button>
   `);
+  setTimeout(()=>cekTotalBobot('new'), 50);
+};
+
+window.cekTotalBobot = (prefix) => {
+  const uts = parseFloat(document.getElementById(prefix==='new'?'newBobotUTS':'editBobotUTS')?.value) || 0;
+  const uas = parseFloat(document.getElementById(prefix==='new'?'newBobotUAS':'editBobotUAS')?.value) || 0;
+  const tugas = parseFloat(document.getElementById(prefix==='new'?'newBobotTugas':'editBobotTugas')?.value) || 0;
+  const kuis = parseFloat(document.getElementById(prefix==='new'?'newBobotKuis':'editBobotKuis')?.value) || 0;
+  const total = uts + uas + tugas + kuis;
+  const el = document.getElementById(prefix==='new'?'totalBobotNew':'totalBobotEdit');
+  if(el){
+    el.textContent = `Total: ${total}%`;
+    el.style.color = total === 100 ? 'var(--g)' : 'var(--r)';
+  }
+  return total;
 };
 
 window.simpanKelasBaru = async () => {
@@ -2676,13 +2765,20 @@ window.simpanKelasBaru = async () => {
   const sks = document.getElementById('newKelasSks').value.trim();
   const jadwal = document.getElementById('newKelasJadwal').value.trim();
   const ruang = document.getElementById('newKelasRuang').value.trim();
+  const bobotUTS = parseFloat(document.getElementById('newBobotUTS').value) || 0;
+  const bobotUAS = parseFloat(document.getElementById('newBobotUAS').value) || 0;
+  const bobotTugas = parseFloat(document.getElementById('newBobotTugas').value) || 0;
+  const bobotKuis = parseFloat(document.getElementById('newBobotKuis').value) || 0;
+
   if(!namaMatkul) return toast('⚠️ Isi nama mata kuliah dulu');
+  if(bobotUTS + bobotUAS + bobotTugas + bobotKuis !== 100) return toast('⚠️ Total bobot harus 100%');
 
   try {
     const kodeKelas = generateKodeKelas();
     const ref = await addDoc(collection(db,'kelas'), {
       namaMatkul, sks: sks?parseInt(sks):null, jadwal: jadwal||null, ruang: ruang||null,
-      kodeKelas, dosenId: user.id, createdAt: serverTimestamp()
+      kodeKelas, dosenId: user.id, createdAt: serverTimestamp(),
+      bobotUTS, bobotUAS, bobotTugas, bobotKuis
     });
     toast('✅ Kelas berhasil dibuat! Kode: '+kodeKelas);
     closeModal();
@@ -2708,8 +2804,19 @@ window.editKelas = async (kId) => {
     <input class="inp" id="editKelasJadwal" value="${(k.jadwal||'').replace(/"/g,'&quot;')}">
     <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">🚪 Ruang</label>
     <input class="inp" id="editKelasRuang" value="${(k.ruang||'').replace(/"/g,'&quot;')}">
+
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">⚖️ Bobot Penilaian (%)</label>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:6px">
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">UTS</div><input class="inp" type="number" id="editBobotUTS" value="${k.bobotUTS??30}" min="0" max="100" style="margin:0" oninput="cekTotalBobot('edit')"></div>
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">UAS</div><input class="inp" type="number" id="editBobotUAS" value="${k.bobotUAS??40}" min="0" max="100" style="margin:0" oninput="cekTotalBobot('edit')"></div>
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Tugas</div><input class="inp" type="number" id="editBobotTugas" value="${k.bobotTugas??20}" min="0" max="100" style="margin:0" oninput="cekTotalBobot('edit')"></div>
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Kuis</div><input class="inp" type="number" id="editBobotKuis" value="${k.bobotKuis??10}" min="0" max="100" style="margin:0" oninput="cekTotalBobot('edit')"></div>
+    </div>
+    <div id="totalBobotEdit" style="font-size:12px;font-weight:600;color:var(--g);margin-bottom:14px">Total: 100%</div>
+
     <button class="btn-submit" onclick="simpanEditKelas('${kId}')">Simpan Perubahan</button>
   `);
+  setTimeout(()=>cekTotalBobot('edit'), 50);
 };
 
 window.simpanEditKelas = async (kId) => {
@@ -2717,19 +2824,37 @@ window.simpanEditKelas = async (kId) => {
   const sks = document.getElementById('editKelasSks').value.trim();
   const jadwal = document.getElementById('editKelasJadwal').value.trim();
   const ruang = document.getElementById('editKelasRuang').value.trim();
+  const bobotUTS = parseFloat(document.getElementById('editBobotUTS').value) || 0;
+  const bobotUAS = parseFloat(document.getElementById('editBobotUAS').value) || 0;
+  const bobotTugas = parseFloat(document.getElementById('editBobotTugas').value) || 0;
+  const bobotKuis = parseFloat(document.getElementById('editBobotKuis').value) || 0;
+
   if(!namaMatkul) return toast('⚠️ Nama mata kuliah wajib diisi');
+  if(bobotUTS + bobotUAS + bobotTugas + bobotKuis !== 100) return toast('⚠️ Total bobot harus 100%');
+
   try {
     await updateDoc(doc(db,'kelas',kId), {
-      namaMatkul, sks: sks?parseInt(sks):null, jadwal: jadwal||null, ruang: ruang||null
+      namaMatkul, sks: sks?parseInt(sks):null, jadwal: jadwal||null, ruang: ruang||null,
+      bobotUTS, bobotUAS, bobotTugas, bobotKuis
     });
     toast('✅ Info kelas diperbarui!');
     closeModal();
     await loadDaftarKelas();
     if(kelasId()===kId){
-      config = { NAMA_MATKUL:_kelasAktif.namaMatkul, SKS:_kelasAktif.sks, JADWAL:_kelasAktif.jadwal, RUANG:_kelasAktif.ruang };
+      config = {
+        NAMA_MATKUL: _kelasAktif.namaMatkul, SKS: _kelasAktif.sks,
+        JADWAL: _kelasAktif.jadwal, RUANG: _kelasAktif.ruang,
+        BOBOT_UTS: _kelasAktif.bobotUTS ?? 30, BOBOT_UAS: _kelasAktif.bobotUAS ?? 40,
+        BOBOT_TUGAS: _kelasAktif.bobotTugas ?? 20, BOBOT_KUIS: _kelasAktif.bobotKuis ?? 10
+      };
     }
     renderKelasSelector();
     await renderPengaturan();
+
+    // Tawarkan rekalkulasi — lihat langkah 7
+    if(confirm('Bobot/info kelas tersimpan. Hitung ulang Nilai Akhir semua mahasiswa sekarang?')){
+      await rekalkulasiNilaiAkhir(kId);
+    }
   } catch(e){
     toast('❌ Gagal: '+e.message);
   }
