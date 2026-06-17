@@ -203,6 +203,9 @@ window.gantiKelasAktif = async (newKelasId) => {
   go('dashboard');
 };
 
+function totalBobotValid(total, epsilon = 0.01) {
+  return Math.abs(total - 100) < epsilon;
+}
 function hitungNilaiAkhir(n, bobot){
   const komponen = [
     {nilai: n.nilaiUTS,   bobot: bobot.BOBOT_UTS},
@@ -1664,10 +1667,7 @@ nilaiSnap.forEach(d => { const dat = d.data(); nilaiMap[dat.mahasiswaId] = dat; 
       const uas   = n.nilaiUAS   ?? null;
       const tugas = n.nilaiTugas ?? null;
       const kuis  = n.nilaiKuis  ?? null;
-      const adaNilai = [uts,uas,tugas,kuis].filter(x=>x!==null);
-      const rata  = adaNilai.length > 0
-        ? Math.round(adaNilai.reduce((s,x)=>s+x,0)/adaNilai.length)
-        : null;
+      const rata  = n.nilaiAkhir ?? hitungNilaiAkhir({ nilaiUTS: uts, nilaiUAS: uas, nilaiTugas: tugas, nilaiKuis: kuis }, config);
       const grade = rata===null?'-':rata>=80?'A':rata>=70?'B':rata>=60?'C':rata>=50?'D':'E';
 
       sheet1Data.push([
@@ -1703,10 +1703,7 @@ nilaiSnap.forEach(d => { const dat = d.data(); nilaiMap[dat.mahasiswaId] = dat; 
       const uas   = n.nilaiUAS   ?? null;
       const tugas = n.nilaiTugas ?? null;
       const kuis  = n.nilaiKuis  ?? null;
-      const adaNilai = [uts,uas,tugas,kuis].filter(x=>x!==null);
-      const rata  = adaNilai.length > 0
-        ? Math.round(adaNilai.reduce((s,x)=>s+x,0)/adaNilai.length)
-        : null;
+      const rata  = n.nilaiAkhir ?? hitungNilaiAkhir({ nilaiUTS: uts, nilaiUAS: uas, nilaiTugas: tugas, nilaiKuis: kuis }, config);
       const grade = rata===null?'-':rata>=80?'A':rata>=70?'B':rata>=60?'C':rata>=50?'D':'E';
       sheet2Data.push([i+1, m.nim||'-', m.nama||'-', uts??'-', uas??'-', tugas??'-', kuis??'-', rata??'-', grade]);
     });
@@ -1811,9 +1808,11 @@ nilaiSnap.forEach(d => { const dat = d.data(); nilaiMap[dat.mahasiswaId] = dat; 
       const nilaiTugas = n?.nilaiTugas ?? null;
       const nilaiKuis = n?.nilaiKuis ?? null;
 
-      // Hitung rata-rata nilai yang sudah diinput
-      const adaNilai = [nilaiUTS,nilaiUAS,nilaiTugas,nilaiKuis].filter(x=>x!==null);
-      const rataaNilai = adaNilai.length > 0 ? Math.round(adaNilai.reduce((s,x)=>s+x,0)/adaNilai.length) : null;
+      // Pakai nilaiAkhir berbobot yang sudah tersimpan; kalau belum ada, hitung dari bobot config
+      const rataaNilai = n?.nilaiAkhir ?? hitungNilaiAkhir(
+        { nilaiUTS, nilaiUAS, nilaiTugas, nilaiKuis },
+        config
+      );
       if(rataaNilai !== null){ totalNilai += rataaNilai; jumlahAdaNilai++; }
 
       if(pct < 75 || (rataaNilai !== null && rataaNilai < 60)){
@@ -1828,9 +1827,11 @@ nilaiSnap.forEach(d => { const dat = d.data(); nilaiMap[dat.mahasiswaId] = dat; 
     const distribusi = {A:0, B:0, C:0, D:0, E:0};
     mhsList.forEach(m => {
       const n = nilaiMap[m.id];
-      const adaNilai = [n?.nilaiUTS,n?.nilaiUAS,n?.nilaiTugas,n?.nilaiKuis].filter(x=>x!=null);
-      if(adaNilai.length === 0) return;
-      const rata = Math.round(adaNilai.reduce((s,x)=>s+x,0)/adaNilai.length);
+      const rata = n?.nilaiAkhir ?? hitungNilaiAkhir(
+        { nilaiUTS: n?.nilaiUTS ?? null, nilaiUAS: n?.nilaiUAS ?? null, nilaiTugas: n?.nilaiTugas ?? null, nilaiKuis: n?.nilaiKuis ?? null },
+        config
+      );
+      if(rata === null) return;
       if(rata>=80) distribusi.A++;
       else if(rata>=70) distribusi.B++;
       else if(rata>=60) distribusi.C++;
@@ -2759,7 +2760,7 @@ window.cekTotalBobot = (prefix) => {
   const el = document.getElementById(prefix==='new'?'totalBobotNew':'totalBobotEdit');
   if(el){
     el.textContent = `Total: ${total}%`;
-    el.style.color = total === 100 ? 'var(--g)' : 'var(--r)';
+    el.style.color = totalBobotValid(total) ? 'var(--g)' : 'var(--r)';
   }
   return total;
 };
@@ -2775,7 +2776,8 @@ window.simpanKelasBaru = async () => {
   const bobotKuis = parseFloat(document.getElementById('newBobotKuis').value) || 0;
 
   if(!namaMatkul) return toast('⚠️ Isi nama mata kuliah dulu');
-  if(bobotUTS + bobotUAS + bobotTugas + bobotKuis !== 100) return toast('⚠️ Total bobot harus 100%');
+  const totalBobotBaru = bobotUTS + bobotUAS + bobotTugas + bobotKuis;
+  if(!totalBobotValid(totalBobotBaru)) return toast('⚠️ Total bobot harus 100% (saat ini: '+totalBobotBaru+'%)');
 
   try {
     const kodeKelas = generateKodeKelas();
@@ -2834,7 +2836,8 @@ window.simpanEditKelas = async (kId) => {
   const bobotKuis = parseFloat(document.getElementById('editBobotKuis').value) || 0;
 
   if(!namaMatkul) return toast('⚠️ Nama mata kuliah wajib diisi');
-  if(bobotUTS + bobotUAS + bobotTugas + bobotKuis !== 100) return toast('⚠️ Total bobot harus 100%');
+  const totalBobotEditVal = bobotUTS + bobotUAS + bobotTugas + bobotKuis;
+  if(!totalBobotValid(totalBobotEditVal)) return toast('⚠️ Total bobot harus 100% (saat ini: '+totalBobotEditVal+'%)');
 
   try {
     await updateDoc(doc(db,'kelas',kId), {
