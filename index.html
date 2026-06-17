@@ -185,6 +185,7 @@
         'clipboard': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>`,
         'message-square': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
         'send': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+        'reply': `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>`,
       };
       return icons[name] || '';
     }
@@ -199,6 +200,7 @@
     window.go = function(page, params={}) {
       document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('on'));
       if(_chatUnsub){ _chatUnsub(); _chatUnsub = null; }
+      _replyTarget = null;
       document.querySelectorAll('.bn-item').forEach(n=>n.classList.remove('on'));
       document.getElementById('nav-'+page)?.classList.add('on');
       document.getElementById('bn-'+page)?.classList.add('on');
@@ -1893,6 +1895,7 @@ html += `
 
     // ── CHAT KELAS ────────────────────────────────────────────────
 let _chatUnsub = null;
+let _replyTarget = null;
 
 async function renderChat(){
   const namaMatkul = config.NAMA_MATKUL || 'Kelas';
@@ -1909,6 +1912,7 @@ async function renderChat(){
         <div class="loading"><div class="spin"></div><span>Memuat chat...</span></div>
       </div>
       <div style="padding-top:2px;flex-shrink:0">
+        <div id="replyPreviewBox" style="display:none"></div>
         <div style="display:flex;gap:8px;align-items:flex-end;background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:8px 10px;box-shadow:var(--shadow)">
           <div style="width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--p),#7c3aed);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">
             ${(user.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
@@ -1930,6 +1934,29 @@ async function renderChat(){
 window.autoResizeChat = (el) => {
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+};
+
+window.setReplyTarget = (msgId, nama, isi) => {
+  _replyTarget = { id: msgId, nama, isi };
+  const box = document.getElementById('replyPreviewBox');
+  if(box){
+    box.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;background:var(--pl);border-radius:10px;padding:8px 12px;margin-bottom:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:700;color:var(--p)">Membalas ${nama}</div>
+          <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${isi}</div>
+        </div>
+        <button onclick="cancelReply()" style="background:none;border:none;cursor:pointer;color:var(--muted);flex-shrink:0">${svgIcon('x')}</button>
+      </div>`;
+    box.style.display = 'block';
+  }
+  document.getElementById('chatInput')?.focus();
+};
+
+window.cancelReply = () => {
+  _replyTarget = null;
+  const box = document.getElementById('replyPreviewBox');
+  if(box){ box.innerHTML = ''; box.style.display = 'none'; }
 };
 
 function startChatListener(){
@@ -1974,39 +2001,58 @@ function startChatListener(){
       lastSenderId = m.pengirimId;
       lastSenderTime = tgl;
       const tombolHapus = (user.role==='dosen'||m.pengirimId===user.id)
-        ? `<button onclick="hapusChat('${m.id}')" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0;opacity:.5;line-height:1" title="Hapus">${svgIcon('trash')}</button>`
-        : '';
-      if(isMe){
-        html += `
-          <div style="display:flex;justify-content:flex-end;align-items:flex-end;gap:6px;margin-bottom:1px" id="msg_${m.id}">
-            <div style="max-width:72%">
-              <div style="background:var(--p);color:#fff;border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:14px;line-height:1.5;word-break:break-word;box-shadow:0 1px 4px rgba(79,70,229,.25)">
-                ${escapeHtml(m.isi)}
-              </div>
-              <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:3px">
-                <span style="font-size:10px;color:var(--muted)">${jamStr}</span>
-                ${tombolHapus}
-              </div>
-            </div>
-          </div>`;
+  ? `<button onclick="hapusChat('${m.id}')" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0;opacity:.5;line-height:1" title="Hapus">${svgIcon('trash')}</button>`
+  : '';
+const namaPengirimEsc = (m.pengirimNama||'').replace(/'/g,"\\'");
+const isiEsc = (m.isi||'').replace(/'/g,"\\'").replace(/\n/g,' ');
+const tombolReply = `<button onclick="setReplyTarget('${m.id}','${namaPengirimEsc}','${isiEsc}')" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0;opacity:.5;line-height:1" title="Balas">${svgIcon('reply')}</button>`;
+  
+      
+  if(isMe){
+  const replyPreviewMe = m.replyTo ? `
+    <div style="background:rgba(255,255,255,.18);border-left:3px solid rgba(255,255,255,.6);border-radius:6px;padding:6px 10px;margin-bottom:6px;font-size:12px">
+      <div style="font-weight:700;opacity:.9">${m.replyTo.nama}</div>
+      <div style="opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m.replyTo.isi)}</div>
+    </div>` : '';
+  html += `
+    <div style="display:flex;justify-content:flex-end;align-items:flex-end;gap:6px;margin-bottom:1px" id="msg_${m.id}">
+      <div style="max-width:72%">
+        <div style="background:var(--p);color:#fff;border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:14px;line-height:1.5;word-break:break-word;box-shadow:0 1px 4px rgba(79,70,229,.25)">
+          ${replyPreviewMe}
+          ${escapeHtml(m.isi)}
+        </div>
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:3px">
+          <span style="font-size:10px;color:var(--muted)">${jamStr}</span>
+          ${tombolReply}
+          ${tombolHapus}
+        </div>
+      </div>
+    </div>`;
       } else {
-        html += `
-          <div style="display:flex;align-items:flex-end;gap:6px;margin-bottom:1px" id="msg_${m.id}">
-            <div style="width:30px;flex-shrink:0;margin-bottom:18px">
-              ${showAvatar?`<div style="width:30px;height:30px;border-radius:8px;background:${isDosen?'linear-gradient(135deg,var(--p),#7c3aed)':'linear-gradient(135deg,#059669,#0d9488)'};color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">${inisial}</div>`:''}
-            </div>
-            <div style="max-width:72%">
-              ${showAvatar?`<div style="font-size:11px;font-weight:700;color:${isDosen?'var(--p)':'var(--ink2)'};margin-bottom:3px;padding-left:2px">${m.pengirimNama}${isDosen?' 👨‍🏫':''}</div>`:''}
-              <div style="background:${isDosen?'var(--pl)':'#fff'};border:1px solid ${isDosen?'rgba(79,70,229,.25)':'var(--border)'};border-radius:16px 16px 16px 4px;padding:10px 14px;font-size:14px;line-height:1.5;word-break:break-word;box-shadow:var(--shadow)">
-                ${escapeHtml(m.isi)}
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;margin-top:3px;padding-left:2px">
-                <span style="font-size:10px;color:var(--muted)">${jamStr}</span>
-                ${tombolHapus}
-              </div>
-            </div>
-          </div>`;
-      }
+  const replyPreviewLain = m.replyTo ? `
+    <div style="background:rgba(0,0,0,.04);border-left:3px solid var(--p);border-radius:6px;padding:6px 10px;margin-bottom:6px;font-size:12px">
+      <div style="font-weight:700;color:var(--p)">${m.replyTo.nama}</div>
+      <div style="color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m.replyTo.isi)}</div>
+    </div>` : '';
+  html += `
+    <div style="display:flex;align-items:flex-end;gap:6px;margin-bottom:1px" id="msg_${m.id}">
+      <div style="width:30px;flex-shrink:0;margin-bottom:18px">
+        ${showAvatar?`<div style="width:30px;height:30px;border-radius:8px;background:${isDosen?'linear-gradient(135deg,var(--p),#7c3aed)':'linear-gradient(135deg,#059669,#0d9488)'};color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">${inisial}</div>`:''}
+      </div>
+      <div style="max-width:72%">
+        ${showAvatar?`<div style="font-size:11px;font-weight:700;color:${isDosen?'var(--p)':'var(--ink2)'};margin-bottom:3px;padding-left:2px">${m.pengirimNama}${isDosen?' 👨‍🏫':''}</div>`:''}
+        <div style="background:${isDosen?'var(--pl)':'#fff'};border:1px solid ${isDosen?'rgba(79,70,229,.25)':'var(--border)'};border-radius:16px 16px 16px 4px;padding:10px 14px;font-size:14px;line-height:1.5;word-break:break-word;box-shadow:var(--shadow)">
+          ${replyPreviewLain}
+          ${escapeHtml(m.isi)}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:3px;padding-left:2px">
+          <span style="font-size:10px;color:var(--muted)">${jamStr}</span>
+          ${tombolReply}
+          ${tombolHapus}
+        </div>
+      </div>
+    </div>`;
+}
     });
     const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     el.innerHTML = html;
@@ -2029,14 +2075,17 @@ window.kirimChat = async () => {
   if(!isi) return;
   input.value = '';
   input.style.height = 'auto';
+  const replyData = _replyTarget ? { nama: _replyTarget.nama, isi: _replyTarget.isi } : null;
   try {
     await addDoc(collection(db,'chat'),{
       isi,
       pengirimId: user.id,
       pengirimNama: user.nama,
       pengirimRole: user.role,
+      replyTo: replyData,
       createdAt: serverTimestamp()
     });
+    cancelReply();
   } catch(e){
     toast('❌ Gagal kirim: '+e.message);
     input.value = isi;
