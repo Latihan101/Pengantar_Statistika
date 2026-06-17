@@ -113,6 +113,7 @@
         {p:'mahasiswa',i:'users',l:'Mahasiswa'},
         {p:'rekap_dsn',i:'bar-chart-2',l:'Rekap'},
         {p:'nilai_dsn',i:'edit',l:'Input Nilai'},
+        {p:'chat',i:'message-square',l:'Chat'},
         {p:'notifikasi',i:'bell',l:'Notifikasi'},
         {p:'profil',i:'user',l:'Profil'},
       ];
@@ -120,6 +121,7 @@
         {p:'dashboard',i:'grid',l:'Dashboard'},
         {p:'pertemuan',i:'calendar',l:'Pertemuan'},
         {p:'tugas_mhs',i:'clipboard',l:'Tugas'},
+        {p:'chat',i:'message-square',l:'Chat'},
         {p:'absensi_mhs',i:'check-square',l:'Absensi'},
         {p:'nilai_mhs',i:'bar-chart-2',l:'Nilai'},
         {p:'notifikasi',i:'bell',l:'Notifikasi'},
@@ -137,8 +139,8 @@
           <span class="nav-lbl">Keluar</span>
         </div>`;
       const bnKeys = user.role==='dosen'
-  ? ['dashboard','pertemuan','rekap_dsn','nilai_dsn']
-  : ['dashboard','pertemuan','tugas_mhs','absensi_mhs'];
+  ? ['dashboard','pertemuan','chat','rekap_dsn']
+  : ['dashboard','pertemuan','tugas_mhs','chat'];
       const bnItems = nav.filter(n=>bnKeys.includes(n.p));
       document.getElementById('bottomNav').innerHTML =
   `<div class="bn-items">
@@ -181,6 +183,8 @@
         'help-circle': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
         'drive': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2z"/><path d="M2 19h20"/><path d="M12 2L6 19"/></svg>`,
         'clipboard': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>`,
+        'message-square': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
+        'send': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
       };
       return icons[name] || '';
     }
@@ -189,11 +193,12 @@
     const TITLES = {
   dashboard:'Dashboard', pertemuan:'Pertemuan', mahasiswa:'Data Mahasiswa',
   nilai_dsn:'Input Nilai', notifikasi:'Notifikasi', profil:'Profil Saya',
-  absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya', tugas_mhs:'Tugas Saya', rekap_dsn:'Rekap Kelas',
+  absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya', tugas_mhs:'Tugas Saya', rekap_dsn:'Rekap Kelas', chat:'Chat Kelas',
     };
 
     window.go = function(page, params={}) {
       document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('on'));
+      if(_chatUnsub){ _chatUnsub(); _chatUnsub = null; }
       document.querySelectorAll('.bn-item').forEach(n=>n.classList.remove('on'));
       document.getElementById('nav-'+page)?.classList.add('on');
       document.getElementById('bn-'+page)?.classList.add('on');
@@ -203,7 +208,7 @@
      const map = {
   dashboard:renderDashboard, pertemuan:renderPertemuan, mahasiswa:renderMahasiswa,
   nilai_dsn:renderNilaiDsn, notifikasi:renderNotifikasi, profil:renderProfil,
-  absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs, tugas_mhs:renderTugasMhs, rekap_dsn:renderRekapDsn
+  absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs, tugas_mhs:renderTugasMhs, rekap_dsn:renderRekapDsn, chat:renderChat
      };
       if (map[page]) {
         Promise.resolve(map[page](params)).catch(e=>{
@@ -1845,6 +1850,169 @@ html += `
         </div>`);
     }
 
+    // ── CHAT KELAS ────────────────────────────────────────────────
+let _chatUnsub = null;
+
+async function renderChat(){
+  const namaMatkul = config.NAMA_MATKUL || 'Kelas';
+  setContent(`
+    <div style="display:flex;flex-direction:column;height:calc(100vh - var(--top) - var(--bot) - 32px);max-height:700px">
+      <div style="background:linear-gradient(135deg,var(--p),#7c3aed);border-radius:var(--radius);padding:14px 16px;margin-bottom:12px;color:#fff;display:flex;align-items:center;gap:10px;flex-shrink:0">
+        <div style="width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:20px">💬</div>
+        <div>
+          <div style="font-weight:800;font-size:15px">${namaMatkul}</div>
+          <div style="font-size:12px;opacity:.8">Chat Kelas · Realtime</div>
+        </div>
+      </div>
+      <div id="chatMessages" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:4px 2px;scroll-behavior:smooth">
+        <div class="loading"><div class="spin"></div><span>Memuat chat...</span></div>
+      </div>
+      <div style="padding-top:10px;flex-shrink:0">
+        <div style="display:flex;gap:8px;align-items:flex-end;background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:8px 10px;box-shadow:var(--shadow)">
+          <div style="width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--p),#7c3aed);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            ${(user.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
+          </div>
+          <textarea id="chatInput" placeholder="Tulis pesan..." 
+            style="flex:1;border:none;outline:none;resize:none;font-family:inherit;font-size:14px;line-height:1.5;max-height:100px;overflow-y:auto;background:transparent;color:var(--ink)"
+            rows="1"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();kirimChat();}"
+            oninput="autoResizeChat(this)"></textarea>
+          <button onclick="kirimChat()" style="background:var(--p);border:none;border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;flex-shrink:0;transition:background .15s"
+            onmouseover="this.style.background='var(--pd)'" onmouseout="this.style.background='var(--p)'">
+            ${svgIcon('send')}
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px">Enter kirim · Shift+Enter baris baru</div>
+      </div>
+    </div>`);
+  startChatListener();
+}
+
+window.autoResizeChat = (el) => {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+};
+
+function startChatListener(){
+  if(_chatUnsub){ _chatUnsub(); _chatUnsub = null; }
+  const q = query(collection(db,'chat'), orderBy('createdAt','asc'));
+  _chatUnsub = onSnapshot(q, (snap) => {
+    const el = document.getElementById('chatMessages');
+    if(!el){ if(_chatUnsub){_chatUnsub();_chatUnsub=null;} return; }
+    const msgs = [];
+    snap.forEach(d => msgs.push({id:d.id,...d.data()}));
+    if(msgs.length === 0){
+      el.innerHTML = `
+        <div style="text-align:center;padding:40px 20px;color:var(--muted)">
+          <div style="font-size:48px;margin-bottom:12px">💬</div>
+          <div style="font-weight:600;margin-bottom:4px">Belum ada pesan</div>
+          <div style="font-size:12px">Mulai percakapan sekarang!</div>
+        </div>`;
+      return;
+    }
+    let html = '';
+    let lastDate = '';
+    let lastSenderId = '';
+    let lastSenderTime = null;
+    msgs.forEach((m) => {
+      const tgl = m.createdAt?.toDate ? m.createdAt.toDate() : new Date();
+      const tglStr = tgl.toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
+      const jamStr = tgl.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+      if(tglStr !== lastDate){
+        html += `
+          <div style="display:flex;align-items:center;gap:10px;margin:8px 0">
+            <div style="flex:1;height:1px;background:var(--border)"></div>
+            <div style="font-size:11px;color:var(--muted);font-weight:600;white-space:nowrap;background:var(--bg);padding:2px 10px;border-radius:20px;border:1px solid var(--border)">${tglStr}</div>
+            <div style="flex:1;height:1px;background:var(--border)"></div>
+          </div>`;
+        lastDate = tglStr;
+      }
+      const isMe = m.pengirimId === user.id;
+      const isDosen = m.pengirimRole === 'dosen';
+      const inisial = (m.pengirimNama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+      const selisihWaktu = lastSenderTime ? (tgl - lastSenderTime)/1000/60 : 999;
+      const showAvatar = !isMe && (m.pengirimId !== lastSenderId || selisihWaktu > 3);
+      lastSenderId = m.pengirimId;
+      lastSenderTime = tgl;
+      const tombolHapus = (user.role==='dosen'||m.pengirimId===user.id)
+        ? `<button onclick="hapusChat('${m.id}')" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0;opacity:.5;line-height:1" title="Hapus">${svgIcon('trash')}</button>`
+        : '';
+      if(isMe){
+        html += `
+          <div style="display:flex;justify-content:flex-end;align-items:flex-end;gap:6px;margin-bottom:1px" id="msg_${m.id}">
+            <div style="max-width:72%">
+              <div style="background:var(--p);color:#fff;border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:14px;line-height:1.5;word-break:break-word;box-shadow:0 1px 4px rgba(79,70,229,.25)">
+                ${escapeHtml(m.isi)}
+              </div>
+              <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:3px">
+                <span style="font-size:10px;color:var(--muted)">${jamStr}</span>
+                ${tombolHapus}
+              </div>
+            </div>
+          </div>`;
+      } else {
+        html += `
+          <div style="display:flex;align-items:flex-end;gap:6px;margin-bottom:1px" id="msg_${m.id}">
+            <div style="width:30px;flex-shrink:0;margin-bottom:18px">
+              ${showAvatar?`<div style="width:30px;height:30px;border-radius:8px;background:${isDosen?'linear-gradient(135deg,var(--p),#7c3aed)':'linear-gradient(135deg,#059669,#0d9488)'};color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">${inisial}</div>`:''}
+            </div>
+            <div style="max-width:72%">
+              ${showAvatar?`<div style="font-size:11px;font-weight:700;color:${isDosen?'var(--p)':'var(--ink2)'};margin-bottom:3px;padding-left:2px">${m.pengirimNama}${isDosen?' 👨‍🏫':''}</div>`:''}
+              <div style="background:${isDosen?'var(--pl)':'#fff'};border:1px solid ${isDosen?'rgba(79,70,229,.25)':'var(--border)'};border-radius:16px 16px 16px 4px;padding:10px 14px;font-size:14px;line-height:1.5;word-break:break-word;box-shadow:var(--shadow)">
+                ${escapeHtml(m.isi)}
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:3px;padding-left:2px">
+                <span style="font-size:10px;color:var(--muted)">${jamStr}</span>
+                ${tombolHapus}
+              </div>
+            </div>
+          </div>`;
+      }
+    });
+    const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    el.innerHTML = html;
+    if(wasAtBottom) el.scrollTop = el.scrollHeight;
+  }, (err) => console.error('Chat error:', err));
+}
+
+function escapeHtml(str){
+  return (str||'')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/\n/g,'<br>');
+}
+
+window.kirimChat = async () => {
+  const input = document.getElementById('chatInput');
+  const isi = input?.value.trim();
+  if(!isi) return;
+  input.value = '';
+  input.style.height = 'auto';
+  try {
+    await addDoc(collection(db,'chat'),{
+      isi,
+      pengirimId: user.id,
+      pengirimNama: user.nama,
+      pengirimRole: user.role,
+      createdAt: serverTimestamp()
+    });
+  } catch(e){
+    toast('❌ Gagal kirim: '+e.message);
+    input.value = isi;
+  }
+};
+
+window.hapusChat = async (msgId) => {
+  if(!confirm('Hapus pesan ini?')) return;
+  try {
+    await deleteDoc(doc(db,'chat',msgId));
+    toast('🗑️ Pesan dihapus');
+  } catch(e){ toast('❌ Gagal: '+e.message); }
+};
+    
+    // -- Notifikasi
     async function renderNotifikasi(){
       const isDsn=user.role==='dosen';
       let html=`<div class="section-title" style="margin-bottom:12px">Notifikasi</div>`;
@@ -2112,6 +2280,9 @@ html += `
     .ql-toolbar { border-radius: 10px 10px 0 0 !important; border-color: var(--border) !important; background: var(--bg) !important; }
     .ql-container { border-radius: 0 0 10px 10px !important; border-color: var(--border) !important; font-family: 'Inter', system-ui, sans-serif !important; font-size: 14px !important; }
     .ql-editor { min-height: 200px; }
+    #chatMessages::-webkit-scrollbar { width: 4px; }
+    #chatMessages::-webkit-scrollbar-track { background: transparent; }
+    #chatMessages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
   </style>
 </head>
 <body>
