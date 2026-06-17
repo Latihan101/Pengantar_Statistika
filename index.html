@@ -391,24 +391,65 @@ window.closeSidebar = ()=>{
     }
 
     async function renderPertemuan(){
-      const isDsn = user.role === 'dosen';
-      const snap=await getDocs(collection(db,'pertemuan'));
-      const prts=[];snap.forEach(d=>prts.push({id:d.id,...d.data()}));
-      prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
-      if(prts.length===0){
-        setContent(`<div class="empty"><div class="empty-ico">📅</div><h3>Belum ada pertemuan</h3><p>${isDsn?'Tambahkan pertemuan melalui Firebase Console.':'Belum ada materi yang tersedia.'}</p></div>`);
-        return;
-      }
-      setContent(`
-        <div class="section-title" style="margin-bottom:12px">${prts.length} Pertemuan tersedia</div>
-        <div class="prt-grid">${prts.map(p=>`
-          <div class="prt-card" onclick="bukaPrt('${p.id}')">
-            <div class="prt-num">Pertemuan ${p.pertemuanKe}</div>
-            <div class="prt-topik">${p.topik||'—'}</div>
-            <div class="prt-arrow">${svgIcon('arrow-left')}</div>
-          </div>`).join('')}
-        </div>`);
-    }
+  const isDsn = user.role === 'dosen';
+  const snap=await getDocs(collection(db,'pertemuan'));
+  const prts=[];snap.forEach(d=>prts.push({id:d.id,...d.data()}));
+  prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
+
+  let html = '';
+
+  if(prts.length===0){
+    html += `<div class="empty"><div class="empty-ico">📅</div><h3>Belum ada pertemuan</h3><p>${isDsn?'Tambahkan pertemuan pertama di bawah.':'Belum ada materi yang tersedia.'}</p></div>`;
+  } else {
+    html += `<div class="section-title" style="margin-bottom:12px">${prts.length} Pertemuan tersedia</div>`;
+    html += `<div class="prt-grid">${prts.map(p=>`
+      <div class="prt-card" onclick="bukaPrt('${p.id}')">
+        <div class="prt-num">Pertemuan ${p.pertemuanKe}</div>
+        <div class="prt-topik">${p.topik||'—'}</div>
+        ${isDsn?`<button class="btn-action btn-danger" style="position:absolute;top:12px;right:12px;padding:5px 7px" onclick="event.stopPropagation();hapusPertemuan('${p.id}','${(p.topik||'').replace(/'/g,"\\'")}')">${svgIcon('trash')}</button>`:''}
+        <div class="prt-arrow">${svgIcon('arrow-left')}</div>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  if(isDsn){
+    const nextKe = prts.length > 0 ? Math.max(...prts.map(p=>p.pertemuanKe||0)) + 1 : 1;
+    html += `
+      <div class="add-materi-card">
+        <div class="add-materi-title">${svgIcon('plus')} Tambah Pertemuan Baru</div>
+        <div>
+          <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Pertemuan Ke-</label>
+          <input class="inp" type="number" id="prtKe" placeholder="Contoh: ${nextKe}" value="${nextKe}" min="1" max="16">
+          <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Topik / Judul Pertemuan</label>
+          <input class="inp" id="prtTopik" placeholder="Contoh: Pengantar Statistika Deskriptif">
+          <button class="btn-submit" onclick="simpanPertemuan()">Simpan Pertemuan</button>
+        </div>
+      </div>`;
+  }
+
+  setContent(html);
+}
+
+    window.simpanPertemuan = async () => {
+  const ke = parseInt(document.getElementById('prtKe').value);
+  const topik = document.getElementById('prtTopik').value.trim();
+  if(!ke || ke < 1) return toast('⚠️ Isi nomor pertemuan dengan benar');
+  if(!topik) return toast('⚠️ Isi topik pertemuan dulu');
+
+  const existing = await getDocs(query(collection(db,'pertemuan'), where('pertemuanKe','==',ke)));
+  if(!existing.empty) return toast('⚠️ Pertemuan ke-'+ke+' sudah ada');
+
+  await addDoc(collection(db,'pertemuan'), { pertemuanKe: ke, topik, createdAt: serverTimestamp() });
+  toast('✅ Pertemuan berhasil ditambahkan!');
+  await renderPertemuan();
+};
+
+window.hapusPertemuan = async (prtId, topik) => {
+  if(!confirm(`Hapus pertemuan "${topik}"? Materi, tugas, dan kuis di dalamnya juga akan hilang dari tampilan.`)) return;
+  await deleteDoc(doc(db,'pertemuan',prtId));
+  toast('🗑️ Pertemuan dihapus');
+  await renderPertemuan();
+};
 
     window.bukaPrt=async(prtId)=>{
       const snap=await getDoc(doc(db,'pertemuan',prtId));
@@ -2164,7 +2205,7 @@ window.hapusChat = async (msgId) => {
     .qa-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--p); }
     .qa-ico { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }
     .prt-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
-    .prt-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; cursor: pointer; transition: all .15s; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+    .prt-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; cursor: pointer; transition: all .15s; box-shadow: var(--shadow); position: relative; overflow: visible; }
     .prt-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--p), #7c3aed); opacity: 0; transition: opacity .15s; }
     .prt-card:hover { border-color: var(--p); box-shadow: var(--shadow-md); transform: translateY(-2px); }
     .prt-card:hover::before { opacity: 1; }
@@ -2261,7 +2302,7 @@ window.hapusChat = async (msgId) => {
       .sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 45; transform: translateX(-100%); width: 260px; }
       .sidebar.open { transform: translateX(0); box-shadow: 0 0 40px rgba(0,0,0,.5); }
       .bottom-nav { display: block; }
-      .content { padding: 16px; padding-bottom: calc(var(--bot) + 2px); }
+      .content { padding: 16px; padding-bottom: var(--bot); }
       .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
       .qa-grid { grid-template-columns: 1fr 1fr; }
       .prt-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
