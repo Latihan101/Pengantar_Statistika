@@ -1867,7 +1867,7 @@ async function renderChat(){
       <div id="chatMessages" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:4px 2px;scroll-behavior:smooth">
         <div class="loading"><div class="spin"></div><span>Memuat chat...</span></div>
       </div>
-      <div style="padding-top:10px;flex-shrink:0">
+      <div style="padding-top:2px;flex-shrink:0">
         <div style="display:flex;gap:8px;align-items:flex-end;background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:8px 10px;box-shadow:var(--shadow)">
           <div style="width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--p),#7c3aed);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">
             ${(user.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
