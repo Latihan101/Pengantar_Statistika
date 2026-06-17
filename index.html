@@ -120,6 +120,7 @@
         {p:'nilai_dsn',i:'edit',l:'Input Nilai'},
         {p:'chat',i:'message-square',l:'Chat'},
         {p:'notifikasi',i:'bell',l:'Notifikasi'},
+        {p:'pengaturan',i:'settings',l:'Pengaturan'},
         {p:'profil',i:'user',l:'Profil'},
       ];
       const mhs = [
@@ -223,15 +224,17 @@ function renderChatBadge(count){
         'message-square': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
         'send': `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
         'reply': `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>`,
+        'settings': `<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
       };
       return icons[name] || '';
     }
     window.svgIcon = svgIcon;
 
     const TITLES = {
-  dashboard:'Dashboard', pertemuan:'Pertemuan', mahasiswa:'Data Mahasiswa',
-  nilai_dsn:'Input Nilai', notifikasi:'Notifikasi', profil:'Profil Saya',
-  absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya', tugas_mhs:'Tugas Saya', rekap_dsn:'Rekap Kelas', chat:'Chat Kelas',
+      dashboard:'Dashboard', pertemuan:'Pertemuan', mahasiswa:'Data Mahasiswa',
+      nilai_dsn:'Input Nilai', notifikasi:'Notifikasi', profil:'Profil Saya',
+      absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya', tugas_mhs:'Tugas Saya', rekap_dsn:'Rekap Kelas', chat:'Chat Kelas',
+      pengaturan:'Pengaturan Mata Kuliah',
     };
 
     window.go = function(page, params={}) {
@@ -244,11 +247,12 @@ function renderChatBadge(count){
       document.getElementById('pageTitle').textContent = TITLES[page]||page;
       document.getElementById('topActions').innerHTML = '';
       setContent('<div class="loading"><div class="spin"></div><span>Memuat data...</span></div>');
-     const map = {
-  dashboard:renderDashboard, pertemuan:renderPertemuan, mahasiswa:renderMahasiswa,
-  nilai_dsn:renderNilaiDsn, notifikasi:renderNotifikasi, profil:renderProfil,
-  absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs, tugas_mhs:renderTugasMhs, rekap_dsn:renderRekapDsn, chat:renderChat
-     };
+      const map = {
+      dashboard:renderDashboard, pertemuan:renderPertemuan, mahasiswa:renderMahasiswa,
+      nilai_dsn:renderNilaiDsn, notifikasi:renderNotifikasi, profil:renderProfil,
+      absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs, tugas_mhs:renderTugasMhs, rekap_dsn:renderRekapDsn, chat:renderChat,
+      pengaturan:renderPengaturan
+      };
       if (map[page]) {
         Promise.resolve(map[page](params)).catch(e=>{
           console.error('Gagal render halaman '+page+':', e);
@@ -2249,6 +2253,65 @@ window.hapusChat = async (msgId) => {
           </div>`);
       }catch(e){setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat profil</h3><p>${e.message}</p></div>`);}
     }
+
+    async function renderPengaturan(){
+  if(user.role !== 'dosen'){
+    setContent(`<div class="empty"><div class="empty-ico">🔒</div><h3>Akses Terbatas</h3><p>Halaman ini hanya untuk dosen.</p></div>`);
+    return;
+  }
+  try {
+    const snap = await getDoc(doc(db,'config','appConfig'));
+    const c = snap.exists() ? snap.data() : {};
+    setContent(`
+      <div class="section-title" style="margin-bottom:12px">Informasi Mata Kuliah</div>
+      <div class="card">
+        <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">📚 Nama Mata Kuliah</label>
+        <input class="inp" id="cfgNamaMatkul" placeholder="Contoh: Pengantar Statistika" value="${c.NAMA_MATKUL||''}">
+
+        <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">📋 SKS</label>
+        <input class="inp" type="number" id="cfgSks" placeholder="Contoh: 3" min="1" max="6" value="${c.SKS||''}">
+
+        <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">⏰ Jadwal</label>
+        <input class="inp" id="cfgJadwal" placeholder="Contoh: Senin, 08:00 - 10:30" value="${c.JADWAL||''}">
+
+        <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">🚪 Ruang</label>
+        <input class="inp" id="cfgRuang" placeholder="Contoh: Lab Komputer 2" value="${c.RUANG||''}">
+
+        <button class="btn-submit" onclick="simpanPengaturan()">Simpan Perubahan</button>
+      </div>
+      <div class="card" style="border-left:3px solid var(--p)">
+        <div style="font-size:12px;color:var(--muted);line-height:1.6">💡 Perubahan di halaman ini akan langsung terlihat di Dashboard untuk semua dosen dan mahasiswa.</div>
+      </div>`);
+  } catch(e){
+    setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat pengaturan</h3><p>${e.message}</p></div>`);
+  }
+}
+
+window.simpanPengaturan = async () => {
+  const namaMatkul = document.getElementById('cfgNamaMatkul').value.trim();
+  const sks = document.getElementById('cfgSks').value.trim();
+  const jadwal = document.getElementById('cfgJadwal').value.trim();
+  const ruang = document.getElementById('cfgRuang').value.trim();
+
+  if(!namaMatkul) return toast('⚠️ Isi nama mata kuliah dulu');
+
+  try {
+    await setDoc(doc(db,'config','appConfig'), {
+      NAMA_MATKUL: namaMatkul,
+      SKS: sks ? parseInt(sks) : null,
+      JADWAL: jadwal || null,
+      RUANG: ruang || null,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+    config.NAMA_MATKUL = namaMatkul;
+    config.SKS = sks ? parseInt(sks) : null;
+    config.JADWAL = jadwal || null;
+    config.RUANG = ruang || null;
+    toast('✅ Pengaturan berhasil disimpan!');
+  } catch(e){
+    toast('❌ Gagal menyimpan: '+e.message);
+  }
+};
 
     function v(id){return document.getElementById(id)?.value||'';}
     window.toast=(msg,dur=2800)=>{
