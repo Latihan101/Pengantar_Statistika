@@ -69,9 +69,11 @@
     window._deleteFromDrive = deleteFromCloudinary;
 
     let user = null, config = {}, _prt = null;
-    let _unsubNotif = null;
-    let authRole = 'mahasiswa', showReg = false;
-    let _quill = null;
+let _unsubNotif = null;
+let authRole = 'mahasiswa', showReg = false;
+let _quill = null;
+let _kelasAktif = null;     // { id, namaMatkul, kodeKelas, sks, jadwal, ruang, dosenId }
+let _daftarKelas = [];      // daftar kelas yang relevan untuk user ini
 
     // ── FIX 2: Simpan soalList di window agar tidak perlu JSON.stringify di attribute ──
     window._currentSoalList = [];
@@ -97,23 +99,101 @@
   user = u;
   document.getElementById('screen-login').style.display = 'none';
   const initials = (u.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
-if(u.fotoUrl){
-  document.getElementById('sbAv').innerHTML = `<img src="${u.fotoUrl}" style="width:100%;height:100%;border-radius:10px;object-fit:cover">`;
-} else {
-  document.getElementById('sbAv').textContent = initials;
-}
+  if(u.fotoUrl){
+    document.getElementById('sbAv').innerHTML = `<img src="${u.fotoUrl}" style="width:100%;height:100%;border-radius:10px;object-fit:cover">`;
+  } else {
+    document.getElementById('sbAv').textContent = initials;
+  }
   document.getElementById('sbName').textContent = u.nama;
   document.getElementById('sbRole').textContent = u.role === 'dosen' ? 'Dosen' : 'NIM ' + (u.nim||'-');
-  try { const s = await getDoc(doc(db,'config','appConfig')); if(s.exists()) config = s.data(); } catch(e) {}
+
+  await loadDaftarKelas();
+
   try {
-    const seenSnap = await getDoc(doc(db,'chat_seen',u.id));
+    const seenKey = 'chat_seen_'+(kelasId()||'global');
+    const seenSnap = await getDoc(doc(db,'chat_seen',u.id+'_'+(kelasId()||'x')));
     _lastSeenChat = seenSnap.exists() ? seenSnap.data().lastSeen : null;
   } catch(e) { _lastSeenChat = null; }
+
   buildNav();
+  renderKelasSelector();
   document.getElementById('app').style.display = 'flex';
   startUnreadChatListener();
   go('dashboard');
 }
+
+async function loadDaftarKelas(){
+  _daftarKelas = [];
+  _kelasAktif = null;
+  if(user.role === 'dosen'){
+    const snap = await getDocs(query(collection(db,'kelas'), where('dosenId','==',user.id)));
+    snap.forEach(d => _daftarKelas.push({id:d.id, ...d.data()}));
+  } else {
+    const kelasIds = user.kelasIds || [];
+    for(const kid of kelasIds){
+      try {
+        const kSnap = await getDoc(doc(db,'kelas',kid));
+        if(kSnap.exists()) _daftarKelas.push({id:kSnap.id, ...kSnap.data()});
+      } catch(e){}
+    }
+  }
+  _daftarKelas.sort((a,b)=>(a.namaMatkul||'').localeCompare(b.namaMatkul||''));
+
+  const savedId = localStorage.getItem('kelasAktif_'+user.id);
+  const found = _daftarKelas.find(k => k.id === savedId);
+  _kelasAktif = found || _daftarKelas[0] || null;
+
+  if(_kelasAktif){
+    config = {
+      NAMA_MATKUL: _kelasAktif.namaMatkul,
+      SKS: _kelasAktif.sks,
+      JADWAL: _kelasAktif.jadwal,
+      RUANG: _kelasAktif.ruang
+    };
+  } else {
+    config = {};
+  }
+}
+
+    function renderKelasSelector(){
+  const wrap = document.getElementById('kelasSelectorWrap');
+  if(!wrap) return;
+  if(_daftarKelas.length === 0){
+    wrap.innerHTML = `
+      <div style="padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.06)">
+        <div style="font-size:11px;color:rgba(255,255,255,.4);margin-bottom:6px">KELAS AKTIF</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.5)">Belum ada kelas</div>
+      </div>`;
+    return;
+  }
+  wrap.innerHTML = `
+    <div style="padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.06)">
+      <div style="font-size:11px;color:rgba(255,255,255,.4);margin-bottom:6px">KELAS AKTIF</div>
+      <select id="kelasSelector" onchange="gantiKelasAktif(this.value)" style="width:100%;background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px 10px;font-size:12px;font-weight:600;outline:none;cursor:pointer">
+        ${_daftarKelas.map(k=>`<option value="${k.id}" ${k.id===kelasId()?'selected':''}>${k.namaMatkul||'Tanpa nama'}</option>`).join('')}
+      </select>
+    </div>`;
+}
+
+window.gantiKelasAktif = async (newKelasId) => {
+  const found = _daftarKelas.find(k => k.id === newKelasId);
+  if(!found) return;
+  _kelasAktif = found;
+  localStorage.setItem('kelasAktif_'+user.id, newKelasId);
+  config = {
+    NAMA_MATKUL: _kelasAktif.namaMatkul,
+    SKS: _kelasAktif.sks,
+    JADWAL: _kelasAktif.jadwal,
+    RUANG: _kelasAktif.ruang
+  };
+  try {
+    const seenSnap = await getDoc(doc(db,'chat_seen',user.id+'_'+kelasId()));
+    _lastSeenChat = seenSnap.exists() ? seenSnap.data().lastSeen : null;
+  } catch(e){ _lastSeenChat = null; }
+  startUnreadChatListener();
+  toast('🔄 Kelas aktif: '+_kelasAktif.namaMatkul);
+  go('dashboard');
+};
 
     function buildNav() {
       const dsn = [
@@ -129,6 +209,7 @@ if(u.fotoUrl){
       ];
       const mhs = [
         {p:'dashboard',i:'grid',l:'Dashboard'},
+        {p:'gabung_kelas',i:'plus',l:'Gabung Kelas'},
         {p:'pertemuan',i:'calendar',l:'Pertemuan'},
         {p:'tugas_mhs',i:'clipboard',l:'Tugas'},
         {p:'chat',i:'message-square',l:'Chat'},
@@ -168,7 +249,8 @@ if(u.fotoUrl){
 
     function startUnreadChatListener(){
   if(_unreadChatUnsub){ _unreadChatUnsub(); _unreadChatUnsub = null; }
-  const q = query(collection(db,'chat'), orderBy('createdAt','desc'));
+  if(!kelasId()) return;
+  const q = query(collection(db,'chat'), where('kelasId','==',kelasId()), orderBy('createdAt','desc'));
   _unreadChatUnsub = onSnapshot(q, (snap) => {
     let unreadCount = 0;
     const lastSeenMs = _lastSeenChat?.toMillis ? _lastSeenChat.toMillis() : 0;
@@ -238,7 +320,7 @@ function renderChatBadge(count){
       dashboard:'Dashboard', pertemuan:'Pertemuan', mahasiswa:'Data Mahasiswa',
       nilai_dsn:'Input Nilai', notifikasi:'Notifikasi', profil:'Profil Saya',
       absensi_mhs:'Absensi Saya', nilai_mhs:'Nilai Saya', tugas_mhs:'Tugas Saya', rekap_dsn:'Rekap Kelas', chat:'Chat Kelas',
-      pengaturan:'Pengaturan Mata Kuliah',
+      pengaturan:'Kelola Kelas', gabung_kelas:'Gabung Kelas',
     };
 
     window.go = function(page, params={}) {
@@ -252,10 +334,10 @@ function renderChatBadge(count){
       document.getElementById('topActions').innerHTML = '';
       setContent('<div class="loading"><div class="spin"></div><span>Memuat data...</span></div>');
       const map = {
-      dashboard:renderDashboard, pertemuan:renderPertemuan, mahasiswa:renderMahasiswa,
-      nilai_dsn:renderNilaiDsn, notifikasi:renderNotifikasi, profil:renderProfil,
-      absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs, tugas_mhs:renderTugasMhs, rekap_dsn:renderRekapDsn, chat:renderChat,
-      pengaturan:renderPengaturan
+        dashboard:renderDashboard, pertemuan:renderPertemuan, mahasiswa:renderMahasiswa,
+        nilai_dsn:renderNilaiDsn, notifikasi:renderNotifikasi, profil:renderProfil,
+        absensi_mhs:renderAbsensiMhs, nilai_mhs:renderNilaiMhs, tugas_mhs:renderTugasMhs, rekap_dsn:renderRekapDsn, chat:renderChat,
+        pengaturan:renderPengaturan, gabung_kelas:renderGabungKelas
       };
       if (map[page]) {
         Promise.resolve(map[page](params)).catch(e=>{
@@ -268,6 +350,16 @@ function renderChatBadge(count){
     };
 
     function setContent(h) { document.getElementById('content').innerHTML = h; }
+
+    function kelasId(){ return _kelasAktif?.id || null; }
+
+function requireKelasAktif(){
+  if(!_kelasAktif){
+    setContent(`<div class="empty"><div class="empty-ico">🏫</div><h3>Belum ada kelas aktif</h3><p>${user.role==='dosen'?'Buat kelas baru dulu di menu Pengaturan.':'Gabung ke kelas dulu menggunakan kode dari dosen.'}</p></div>`);
+    return false;
+  }
+  return true;
+}
     
     window.openSidebar = ()=>{
   document.getElementById('sidebar').classList.add('open');
@@ -304,16 +396,16 @@ window.closeSidebar = ()=>{
       catch(e) { showErr('Login gagal: '+(e.code==='auth/invalid-credential'?'Email atau password salah':e.message)); btn.disabled=false; btn.textContent='Masuk'; }
     };
     window.doRegister=async()=>{
-      clearMsg();
-      const nama=v('rNama'),nim=v('rNim'),email=v('rEmail'),pw=v('rPass'),sem=v('rSem'),prodi=v('rProdi');
-      if(!nama||!nim||!email||!pw) return showErr('Semua field wajib diisi');
-      if(pw.length<6) return showErr('Password minimal 6 karakter');
-      try {
-        const cred=await createUserWithEmailAndPassword(auth,email,pw);
-        await setDoc(doc(db,'users',cred.user.uid),{nama,nim,email,role:'mahasiswa',semester:parseInt(sem)||1,prodi,createdAt:new Date()});
-        showOk('Akun berhasil dibuat! Silakan login.'); toggleReg();
-      } catch(e) { showErr('Gagal: '+e.message); }
-    };
+  clearMsg();
+  const nama=v('rNama'),nim=v('rNim'),email=v('rEmail'),pw=v('rPass'),sem=v('rSem'),prodi=v('rProdi');
+  if(!nama||!nim||!email||!pw) return showErr('Semua field wajib diisi');
+  if(pw.length<6) return showErr('Password minimal 6 karakter');
+  try {
+    const cred=await createUserWithEmailAndPassword(auth,email,pw);
+    await setDoc(doc(db,'users',cred.user.uid),{nama,nim,email,role:'mahasiswa',semester:parseInt(sem)||1,prodi,kelasIds:[],createdAt:new Date()});
+    showOk('Akun berhasil dibuat! Silakan login, lalu gabung ke kelas menggunakan kode dari dosen.'); toggleReg();
+  } catch(e) { showErr('Gagal: '+e.message); }
+};
     window.doLogout=async()=>{ if(_unsubNotif){_unsubNotif();_unsubNotif=null;} if(_unreadChatUnsub){_unreadChatUnsub();_unreadChatUnsub=null;} await signOut(auth); };
     function showErr(m){ const e=document.getElementById('authErr'); e.textContent=m; e.style.display='flex'; }
     function showOk(m){ const e=document.getElementById('authOk'); e.textContent=m; e.style.display='flex'; }
@@ -329,10 +421,11 @@ window.closeSidebar = ()=>{
       const ruang = config.RUANG || '-';
 
       if(isDsn){
-        const [mhsSnap, prtSnap] = await Promise.all([
-          getDocs(query(collection(db,'users'),where('role','==','mahasiswa'))),
-          getDocs(collection(db,'pertemuan'))
-        ]);
+  if(!requireKelasAktif()) return;
+  const [mhsSnap, prtSnap] = await Promise.all([
+    getDocs(query(collection(db,'users'),where('role','==','mahasiswa'),where('kelasIds','array-contains',kelasId()))),
+    getDocs(query(collection(db,'pertemuan'),where('kelasId','==',kelasId())))
+  ]);
         setContent(`
           <div class="dash-hero">
             <div class="dash-greet">${greeting}</div>
@@ -377,10 +470,11 @@ window.closeSidebar = ()=>{
             </div>
           </div>`);
       } else {
-        const [absSnap, nilaiSnap] = await Promise.all([
-          getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id))),
-          getDoc(doc(db,'nilai_akhir',user.id))
-        ]);
+  if(!requireKelasAktif()) return;
+  const [absSnap, nilaiSnap] = await Promise.all([
+    getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id),where('kelasId','==',kelasId()))),
+    getDoc(doc(db,'nilai_akhir',user.id+'_'+kelasId()))
+  ]);
         const hadir=absSnap.docs.filter(d=>d.data().status==='hadir').length;
         const n=nilaiSnap.exists()?nilaiSnap.data():{};
         setContent(`
@@ -439,7 +533,8 @@ window.closeSidebar = ()=>{
 
     async function renderPertemuan(){
   const isDsn = user.role === 'dosen';
-  const snap=await getDocs(collection(db,'pertemuan'));
+  if(!requireKelasAktif()) return;
+  const snap=await getDocs(query(collection(db,'pertemuan'),where('kelasId','==',kelasId())));
   const prts=[];snap.forEach(d=>prts.push({id:d.id,...d.data()}));
   prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
 
@@ -483,10 +578,10 @@ window.closeSidebar = ()=>{
   if(!ke || ke < 1) return toast('⚠️ Isi nomor pertemuan dengan benar');
   if(!topik) return toast('⚠️ Isi topik pertemuan dulu');
 
-  const existing = await getDocs(query(collection(db,'pertemuan'), where('pertemuanKe','==',ke)));
-  if(!existing.empty) return toast('⚠️ Pertemuan ke-'+ke+' sudah ada');
+  const existing = await getDocs(query(collection(db,'pertemuan'), where('kelasId','==',kelasId()), where('pertemuanKe','==',ke)));
+  if(!existing.empty) return toast('⚠️ Pertemuan ke-'+ke+' sudah ada di kelas ini');
 
-  await addDoc(collection(db,'pertemuan'), { pertemuanKe: ke, topik, createdAt: serverTimestamp() });
+  await addDoc(collection(db,'pertemuan'), { kelasId: kelasId(), pertemuanKe: ke, topik, createdAt: serverTimestamp() });
   toast('✅ Pertemuan berhasil ditambahkan!');
   await renderPertemuan();
 };
@@ -1174,7 +1269,7 @@ window.hapusPertemuan = async (prtId, topik) => {
       const isDsn=user.role==='dosen';
       const tc=document.getElementById('tabContent');
       if(!tc)return;
-      const mhsSnap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
+      const mhsSnap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa'),where('kelasIds','array-contains',kelasId())));
       const mhsList=[];mhsSnap.forEach(d=>mhsList.push({id:d.id,...d.data()}));
       mhsList.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
       const absSnap=await getDocs(query(collection(db,'absensi'),where('pertemuanId','==',_prt.id)));
@@ -1222,7 +1317,7 @@ window.hapusPertemuan = async (prtId, topik) => {
           <div style="font-size:13px;font-weight:700;margin-bottom:10px">Rekap Kehadiranmu</div>
           <div id="rekapMhs"><div class="loading"><div class="spin"></div></div></div>
         </div>`;
-        const allAbsSnap=await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id)));
+        const allAbsSnap=await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id),where('kelasId','==',kelasId())));
         const allAbs=[];allAbsSnap.forEach(d=>allAbs.push(d.data()));
         const hadir=allAbs.filter(a=>a.status==='hadir').length;
         const tidak=allAbs.filter(a=>a.status==='tidak').length;
@@ -1240,33 +1335,37 @@ window.hapusPertemuan = async (prtId, topik) => {
     }
 
     window.updateAbsensi=async(mhsId,nama,status)=>{
-      if(!status)return;
-      const existing=await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',mhsId),where('pertemuanId','==',_prt.id)));
-      if(existing.empty){await addDoc(collection(db,'absensi'),{mahasiswaId:mhsId,namaMhs:nama,pertemuanId:_prt.id,pertemuanKe:_prt.pertemuanKe,status,updatedAt:serverTimestamp()});}
-      else{await updateDoc(doc(db,'absensi',existing.docs[0].id),{status,updatedAt:serverTimestamp()});}
-      toast('✅ Absensi diperbarui');await renderAbsensiTab();
-    };
+  if(!status)return;
+  const existing=await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',mhsId),where('pertemuanId','==',_prt.id),where('kelasId','==',kelasId())));
+  if(existing.empty){await addDoc(collection(db,'absensi'),{kelasId:kelasId(),mahasiswaId:mhsId,namaMhs:nama,pertemuanId:_prt.id,pertemuanKe:_prt.pertemuanKe,status,updatedAt:serverTimestamp()});}
+  else{await updateDoc(doc(db,'absensi',existing.docs[0].id),{status,updatedAt:serverTimestamp()});}
+  toast('✅ Absensi diperbarui');await renderAbsensiTab();
+};
 
     window.absensiSemuaHadir=async()=>{
-      if(!confirm('Tandai semua mahasiswa hadir?'))return;
-      const mhsSnap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
-      const batch=[];mhsSnap.forEach(d=>batch.push({id:d.id,...d.data()}));
-      for(const m of batch){
-        const existing=await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',m.id),where('pertemuanId','==',_prt.id)));
-        if(existing.empty){await addDoc(collection(db,'absensi'),{mahasiswaId:m.id,namaMhs:m.nama,pertemuanId:_prt.id,pertemuanKe:_prt.pertemuanKe,status:'hadir',updatedAt:serverTimestamp()});}
-        else{await updateDoc(doc(db,'absensi',existing.docs[0].id),{status:'hadir',updatedAt:serverTimestamp()});}
-      }
-      toast('✅ Semua mahasiswa ditandai hadir');await renderAbsensiTab();
-    };
+  if(!confirm('Tandai semua mahasiswa hadir?'))return;
+  const mhsSnap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa'),where('kelasIds','array-contains',kelasId())));
+  const batch=[];mhsSnap.forEach(d=>batch.push({id:d.id,...d.data()}));
+  for(const m of batch){
+    const existing=await getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',m.id),where('pertemuanId','==',_prt.id),where('kelasId','==',kelasId())));
+    if(existing.empty){await addDoc(collection(db,'absensi'),{kelasId:kelasId(),mahasiswaId:m.id,namaMhs:m.nama,pertemuanId:_prt.id,pertemuanKe:_prt.pertemuanKe,status:'hadir',updatedAt:serverTimestamp()});}
+    else{await updateDoc(doc(db,'absensi',existing.docs[0].id),{status:'hadir',updatedAt:serverTimestamp()});}
+  }
+  toast('✅ Semua mahasiswa ditandai hadir');await renderAbsensiTab();
+};
 
     // ── DATA MAHASISWA ─────────────────────────────────────────
     async function renderMahasiswa(){
-      const snap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
-      const list=[];snap.forEach(d=>list.push({id:d.id,...d.data()}));list.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
-      if(list.length===0){setContent(`<div class="empty"><div class="empty-ico">👥</div><h3>Belum ada mahasiswa</h3><p>Mahasiswa akan muncul setelah mendaftar.</p></div>`);return;}
-      const [allAbsSnap,allNilaiSnap]=await Promise.all([getDocs(collection(db,'absensi')),getDocs(collection(db,'nilai_akhir'))]);
+  if(!requireKelasAktif()) return;
+  const snap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa'),where('kelasIds','array-contains',kelasId())));
+  const list=[];snap.forEach(d=>list.push({id:d.id,...d.data()}));list.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
+  if(list.length===0){setContent(`<div class="empty"><div class="empty-ico">👥</div><h3>Belum ada mahasiswa di kelas ini</h3><p>Bagikan kode kelas agar mahasiswa bisa gabung.</p></div>`);return;}
+  const [allAbsSnap,allNilaiSnap]=await Promise.all([
+    getDocs(query(collection(db,'absensi'),where('kelasId','==',kelasId()))),
+    getDocs(query(collection(db,'nilai_akhir'),where('kelasId','==',kelasId())))
+  ]);
       const absMap={};allAbsSnap.forEach(d=>{const dat=d.data();if(!absMap[dat.mahasiswaId])absMap[dat.mahasiswaId]=[];absMap[dat.mahasiswaId].push(dat.status);});
-      const nilaiMap={};allNilaiSnap.forEach(d=>{nilaiMap[d.id]=d.data();});
+      const nilaiMap={};allNilaiSnap.forEach(d=>{const dat=d.data();nilaiMap[dat.mahasiswaId]=dat;});
       setContent(`
   <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
     <div class="section-title" style="flex:1">${list.length} Mahasiswa Terdaftar</div>
@@ -1384,9 +1483,9 @@ window.simpanMhsBaru = async () => {
     const existing = await getDocs(query(collection(db,'users'), where('nim','==',nim)));
     if(!existing.empty) return toast('⚠️ NIM ini sudah terdaftar');
     await addDoc(collection(db,'users'), {
-      nama, nim, email, prodi, semester, role: 'mahasiswa', createdAt: new Date()
+      nama, nim, email, prodi, semester, role: 'mahasiswa', kelasIds: [kelasId()], createdAt: new Date()
     });
-    toast('✅ Data mahasiswa ditambahkan! Mahasiswa perlu mendaftar akun login terpisah.');
+    toast('✅ Data mahasiswa ditambahkan ke kelas ini! Mahasiswa perlu mendaftar akun login terpisah dengan email yang sama.');
     closeModal();
     await renderMahasiswa();
   } catch(e){
@@ -1394,8 +1493,12 @@ window.simpanMhsBaru = async () => {
   }
 };
 
-    window.lihatDetailMhs=async(mhsId,namaMhs)=>{
-      const [mhsSnap,allAbsSnap,nilaiSnap]=await Promise.all([getDoc(doc(db,'users',mhsId)),getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',mhsId))),getDoc(doc(db,'nilai_akhir',mhsId))]);
+   window.lihatDetailMhs=async(mhsId,namaMhs)=>{
+  const [mhsSnap,allAbsSnap,nilaiSnap]=await Promise.all([
+    getDoc(doc(db,'users',mhsId)),
+    getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',mhsId),where('kelasId','==',kelasId()))),
+    getDoc(doc(db,'nilai_akhir',mhsId+'_'+kelasId()))
+  ]);
       const m=mhsSnap.exists()?mhsSnap.data():{};
       const absList=[];allAbsSnap.forEach(d=>absList.push(d.data()));
       const hadir=absList.filter(a=>a.status==='hadir').length;const tidak=absList.filter(a=>a.status==='tidak').length;const izin=absList.filter(a=>a.status==='izin').length;const total=absList.length;const pct=total>0?Math.round(hadir/total*100):0;
@@ -1435,29 +1538,31 @@ window.simpanMhsBaru = async () => {
     };
 
     window.simpanNilaiDariDetail=async(mhsId)=>{
-      const uts=document.getElementById('editNilaiUTS_'+mhsId)?.value.trim();
-      const uas=document.getElementById('editNilaiUAS_'+mhsId)?.value.trim();
-      const tugas=document.getElementById('editNilaiTugas_'+mhsId)?.value.trim();
-      const kuis=document.getElementById('editNilaiKuis_'+mhsId)?.value.trim();
-      await setDoc(doc(db,'nilai_akhir',mhsId),{
-        nilaiUTS:uts?parseFloat(uts):null,
-        nilaiUAS:uas?parseFloat(uas):null,
-        nilaiTugas:tugas?parseFloat(tugas):null,
-        nilaiKuis:kuis?parseFloat(kuis):null,
-        updatedAt:serverTimestamp()
-      },{merge:true});
-      toast('✅ Nilai disimpan!');
-    };
+  const uts=document.getElementById('editNilaiUTS_'+mhsId)?.value.trim();
+  const uas=document.getElementById('editNilaiUAS_'+mhsId)?.value.trim();
+  const tugas=document.getElementById('editNilaiTugas_'+mhsId)?.value.trim();
+  const kuis=document.getElementById('editNilaiKuis_'+mhsId)?.value.trim();
+  await setDoc(doc(db,'nilai_akhir',mhsId+'_'+kelasId()),{
+    mahasiswaId:mhsId, kelasId:kelasId(),
+    nilaiUTS:uts?parseFloat(uts):null,
+    nilaiUAS:uas?parseFloat(uas):null,
+    nilaiTugas:tugas?parseFloat(tugas):null,
+    nilaiKuis:kuis?parseFloat(kuis):null,
+    updatedAt:serverTimestamp()
+  },{merge:true});
+  toast('✅ Nilai disimpan!');
+};
 
     // --Download nilai rekap
     window.downloadRekapExcel = async () => {
+       if(!requireKelasAktif()) return;
   toast('⏳ Menyiapkan file Excel...');
   try {
     const [mhsSnap, prtSnap, absSnap, nilaiSnap] = await Promise.all([
-      getDocs(query(collection(db,'users'),where('role','==','mahasiswa'))),
-      getDocs(collection(db,'pertemuan')),
-      getDocs(collection(db,'absensi')),
-      getDocs(collection(db,'nilai_akhir'))
+      getDocs(query(collection(db,'users'),where('role','==','mahasiswa'),where('kelasIds','array-contains',kelasId()))),
+getDocs(query(collection(db,'pertemuan'),where('kelasId','==',kelasId()))),
+getDocs(query(collection(db,'absensi'),where('kelasId','==',kelasId()))),
+getDocs(query(collection(db,'nilai_akhir'),where('kelasId','==',kelasId())))
     ]);
 
     const mhsList = [];
@@ -1474,7 +1579,7 @@ window.simpanMhsBaru = async () => {
     });
 
     const nilaiMap = {};
-    nilaiSnap.forEach(d => nilaiMap[d.id] = d.data());
+nilaiSnap.forEach(d => { const dat = d.data(); nilaiMap[dat.mahasiswaId] = dat; });
 
     // ── Sheet 1: Rekap Lengkap
     const sheet1Data = [
@@ -1601,13 +1706,14 @@ window.simpanMhsBaru = async () => {
     
     // -- REKAP NILAI
     async function renderRekapDsn(){
+  if(!requireKelasAktif()) return;
   setContent('<div class="loading"><div class="spin"></div><span>Memuat rekap...</span></div>');
   try {
     const [mhsSnap, prtSnap, absSnap, nilaiSnap] = await Promise.all([
-      getDocs(query(collection(db,'users'),where('role','==','mahasiswa'))),
-      getDocs(collection(db,'pertemuan')),
-      getDocs(collection(db,'absensi')),
-      getDocs(collection(db,'nilai_akhir'))
+      getDocs(query(collection(db,'users'),where('role','==','mahasiswa'),where('kelasIds','array-contains',kelasId()))),
+getDocs(query(collection(db,'pertemuan'),where('kelasId','==',kelasId()))),
+getDocs(query(collection(db,'absensi'),where('kelasId','==',kelasId()))),
+getDocs(query(collection(db,'nilai_akhir'),where('kelasId','==',kelasId())))
     ]);
 
     const mhsList = [];
@@ -1626,7 +1732,7 @@ window.simpanMhsBaru = async () => {
 
     // Bangun map nilai per mahasiswa
     const nilaiMap = {};
-    nilaiSnap.forEach(d => nilaiMap[d.id] = d.data());
+nilaiSnap.forEach(d => { const dat = d.data(); nilaiMap[dat.mahasiswaId] = dat; });
 
     // Hitung statistik kelas
     let totalHadirPct = 0, totalNilai = 0, jumlahAdaNilai = 0;
@@ -1836,10 +1942,11 @@ html += `
     
     // ── FIX 3: renderNilaiDsn - tambah kolom Tugas & Kuis ──
     async function renderNilaiDsn(){
-      const snap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa')));
+  if(!requireKelasAktif()) return;
+  const snap=await getDocs(query(collection(db,'users'),where('role','==','mahasiswa'),where('kelasIds','array-contains',kelasId())));
       const list=[];snap.forEach(d=>list.push({id:d.id,...d.data()}));list.sort((a,b)=>(a.nim||'').localeCompare(b.nim||''));
       if(list.length===0){setContent(`<div class="empty"><div class="empty-ico">✏️</div><h3>Belum ada mahasiswa</h3></div>`);return;}
-      const nilaiSnap=await getDocs(collection(db,'nilai_akhir'));const nilaiMap={};nilaiSnap.forEach(d=>nilaiMap[d.id]=d.data());
+      const nilaiSnap=await getDocs(query(collection(db,'nilai_akhir'),where('kelasId','==',kelasId())));const nilaiMap={};nilaiSnap.forEach(d=>{const dat=d.data();nilaiMap[dat.mahasiswaId]=dat;});
       setContent(`
         <div class="section-title" style="margin-bottom:12px">Input Nilai Mahasiswa</div>
         <div class="card">
@@ -1860,24 +1967,26 @@ html += `
     }
 
     window.simpanNilai=async(mhsId)=>{
-      const uts=document.getElementById('n_uts_'+mhsId)?.value.trim();
-      const uas=document.getElementById('n_uas_'+mhsId)?.value.trim();
-      const tugas=document.getElementById('n_tugas_'+mhsId)?.value.trim();
-      const kuis=document.getElementById('n_kuis_'+mhsId)?.value.trim();
-      await setDoc(doc(db,'nilai_akhir',mhsId),{
-        nilaiUTS:uts?parseFloat(uts):null,
-        nilaiUAS:uas?parseFloat(uas):null,
-        nilaiTugas:tugas?parseFloat(tugas):null,
-        nilaiKuis:kuis?parseFloat(kuis):null,
-        updatedAt:serverTimestamp()
-      },{merge:true});
-      toast('✅ Nilai disimpan!');
-    };
+  const uts=document.getElementById('n_uts_'+mhsId)?.value.trim();
+  const uas=document.getElementById('n_uas_'+mhsId)?.value.trim();
+  const tugas=document.getElementById('n_tugas_'+mhsId)?.value.trim();
+  const kuis=document.getElementById('n_kuis_'+mhsId)?.value.trim();
+  await setDoc(doc(db,'nilai_akhir',mhsId+'_'+kelasId()),{
+    mahasiswaId:mhsId, kelasId:kelasId(),
+    nilaiUTS:uts?parseFloat(uts):null,
+    nilaiUAS:uas?parseFloat(uas):null,
+    nilaiTugas:tugas?parseFloat(tugas):null,
+    nilaiKuis:kuis?parseFloat(kuis):null,
+    updatedAt:serverTimestamp()
+  },{merge:true});
+  toast('✅ Nilai disimpan!');
+};
 
     async function renderTugasMhs(){
+  if(!requireKelasAktif()) return;
   setContent('<div class="loading"><div class="spin"></div><span>Memuat tugas...</span></div>');
   try {
-    const prtSnap = await getDocs(collection(db,'pertemuan'));
+    const prtSnap = await getDocs(query(collection(db,'pertemuan'),where('kelasId','==',kelasId())));
     const prts = [];
     prtSnap.forEach(d => prts.push({id:d.id,...d.data()}));
     prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
@@ -1974,7 +2083,11 @@ html += `
 }
     
     async function renderAbsensiMhs(){
-      const [prtSnap,absSnap]=await Promise.all([getDocs(collection(db,'pertemuan')),getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id)))]);
+  if(!requireKelasAktif()) return;
+  const [prtSnap,absSnap]=await Promise.all([
+    getDocs(query(collection(db,'pertemuan'),where('kelasId','==',kelasId()))),
+    getDocs(query(collection(db,'absensi'),where('mahasiswaId','==',user.id),where('kelasId','==',kelasId())))
+  ]);
       const prts=[];prtSnap.forEach(d=>prts.push({id:d.id,...d.data()}));prts.sort((a,b)=>(a.pertemuanKe||0)-(b.pertemuanKe||0));
       const absMap={};absSnap.forEach(d=>{const dat=d.data();absMap[dat.pertemuanId]=dat.status;});
       const hadir=Object.values(absMap).filter(s=>s==='hadir').length;const total=Object.keys(absMap).length;const pct=total>0?Math.round(hadir/total*100):0;
@@ -1998,7 +2111,8 @@ html += `
 
     // ── FIX 3: renderNilaiMhs - tambah Tugas & Kuis, hilangkan Nilai Akhir/Final ──
     async function renderNilaiMhs(){
-      const snap=await getDoc(doc(db,'nilai_akhir',user.id));
+  if(!requireKelasAktif()) return;
+  const snap=await getDoc(doc(db,'nilai_akhir',user.id+'_'+kelasId()));
       const n=snap.exists()?snap.data():{};
       setContent(`
         <div class="profil-card" style="max-width:480px">
@@ -2035,6 +2149,7 @@ let _unreadChatUnsub = null;
 let _lastSeenChat = null;
 
 async function renderChat(){
+  if(!requireKelasAktif()) return;
   const namaMatkul = config.NAMA_MATKUL || 'Kelas';
   markChatAsSeen();
   setContent(`
@@ -2100,7 +2215,7 @@ window.cancelReply = () => {
 async function markChatAsSeen(){
   const now = serverTimestamp();
   try {
-    await setDoc(doc(db,'chat_seen',user.id), { lastSeen: now });
+    await setDoc(doc(db,'chat_seen',user.id+'_'+kelasId()), { lastSeen: now });
     _lastSeenChat = { toMillis: () => Date.now() };
     renderChatBadge(0);
   } catch(e) { console.error('Gagal update chat_seen:', e); }
@@ -2154,10 +2269,9 @@ window.closeChatMenu = () => {
   document.getElementById('chatContextMenu')?.remove();
   document.getElementById('chatContextBackdrop')?.remove();
 };
-
 function startChatListener(){
   if(_chatUnsub){ _chatUnsub(); _chatUnsub = null; }
-  const q = query(collection(db,'chat'), orderBy('createdAt','asc'));
+  const q = query(collection(db,'chat'), where('kelasId','==',kelasId()), orderBy('createdAt','asc'));
   _chatUnsub = onSnapshot(q, (snap) => {
     const el = document.getElementById('chatMessages');
     if(!el){ if(_chatUnsub){_chatUnsub();_chatUnsub=null;} return; }
@@ -2266,13 +2380,14 @@ window.kirimChat = async () => {
   const replyData = _replyTarget ? { nama: _replyTarget.nama, isi: _replyTarget.isi } : null;
   try {
     await addDoc(collection(db,'chat'),{
-      isi,
-      pengirimId: user.id,
-      pengirimNama: user.nama,
-      pengirimRole: user.role,
-      replyTo: replyData,
-      createdAt: serverTimestamp()
-    });
+  kelasId: kelasId(),
+  isi,
+  pengirimId: user.id,
+  pengirimNama: user.nama,
+  pengirimRole: user.role,
+  replyTo: replyData,
+  createdAt: serverTimestamp()
+});
     cancelReply();
   } catch(e){
     toast('❌ Gagal kirim: '+e.message);
@@ -2290,6 +2405,7 @@ window.hapusChat = async (msgId) => {
     
     // -- Notifikasi
     async function renderNotifikasi(){
+      if(!requireKelasAktif()) return;
       const isDsn=user.role==='dosen';
       let html=`<div class="section-title" style="margin-bottom:12px">Notifikasi</div>`;
       if(isDsn){
@@ -2305,16 +2421,16 @@ window.hapusChat = async (msgId) => {
     }
 
     window.kirimNotif=async()=>{
-      const judul=document.getElementById('notifJudul').value.trim();const isi=document.getElementById('notifIsi').value.trim();
-      if(!judul||!isi){alert('Isi semua field!');return;}
-      await addDoc(collection(db,'notifikasi'),{title:judul,pesan:isi,createdAt:serverTimestamp()});
+  const judul=document.getElementById('notifJudul').value.trim();const isi=document.getElementById('notifIsi').value.trim();
+  if(!judul||!isi){alert('Isi semua field!');return;}
+  await addDoc(collection(db,'notifikasi'),{kelasId:kelasId(),title:judul,pesan:isi,createdAt:serverTimestamp()});
       document.getElementById('notifJudul').value='';document.getElementById('notifIsi').value='';
       toast('✅ Notifikasi terkirim!');await loadNotif();
     };
 
     async function loadNotif(){
-      const list=[];
-      try{const snap=await getDocs(query(collection(db,'notifikasi'),orderBy('createdAt','desc')));snap.forEach(d=>list.push({id:d.id,...d.data()}));}catch(e){console.error('Gagal memuat notifikasi:',e);}
+  const list=[];
+  try{const snap=await getDocs(query(collection(db,'notifikasi'),where('kelasId','==',kelasId()),orderBy('createdAt','desc')));snap.forEach(d=>list.push({id:d.id,...d.data()}));}catch(e){console.error('Gagal memuat notifikasi:',e);}
       const el=document.getElementById('listNotif');if(!el)return;
       if(list.length===0){el.innerHTML=`<div class="empty"><div class="empty-ico">🔔</div><h3>Belum ada notifikasi</h3></div>`;return;}
       el.innerHTML=list.map(n=>{
@@ -2419,62 +2535,192 @@ window.gantiPassword = async () => {
   }
 };
     
-    async function renderPengaturan(){
+    function generateKodeKelas(){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let kode = '';
+  for(let i=0;i<6;i++) kode += chars[Math.floor(Math.random()*chars.length)];
+  return kode;
+}
+
+async function renderPengaturan(){
   if(user.role !== 'dosen'){
     setContent(`<div class="empty"><div class="empty-ico">🔒</div><h3>Akses Terbatas</h3><p>Halaman ini hanya untuk dosen.</p></div>`);
     return;
   }
-  try {
-    const snap = await getDoc(doc(db,'config','appConfig'));
-    const c = snap.exists() ? snap.data() : {};
-    setContent(`
-      <div class="section-title" style="margin-bottom:12px">Informasi Mata Kuliah</div>
-      <div class="card">
-        <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">📚 Nama Mata Kuliah</label>
-        <input class="inp" id="cfgNamaMatkul" placeholder="Contoh: Pengantar Statistika" value="${c.NAMA_MATKUL||''}">
+  let html = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="section-title">Kelola Kelas / Mata Kuliah</div>
+      <button class="btn-action btn-primary" onclick="bukaFormKelasBaru()">${svgIcon('plus')} Kelas Baru</button>
+    </div>`;
 
-        <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">📋 SKS</label>
-        <input class="inp" type="number" id="cfgSks" placeholder="Contoh: 3" min="1" max="6" value="${c.SKS||''}">
-
-        <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">⏰ Jadwal</label>
-        <input class="inp" id="cfgJadwal" placeholder="Contoh: Senin, 08:00 - 10:30" value="${c.JADWAL||''}">
-
-        <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">🚪 Ruang</label>
-        <input class="inp" id="cfgRuang" placeholder="Contoh: Lab Komputer 2" value="${c.RUANG||''}">
-
-        <button class="btn-submit" onclick="simpanPengaturan()">Simpan Perubahan</button>
-      </div>
-      <div class="card" style="border-left:3px solid var(--p)">
-        <div style="font-size:12px;color:var(--muted);line-height:1.6">💡 Perubahan di halaman ini akan langsung terlihat di Dashboard untuk semua dosen dan mahasiswa.</div>
-      </div>`);
-  } catch(e){
-    setContent(`<div class="empty"><div class="empty-ico">⚠️</div><h3>Gagal memuat pengaturan</h3><p>${e.message}</p></div>`);
+  if(_daftarKelas.length === 0){
+    html += `<div class="empty"><div class="empty-ico">🏫</div><h3>Belum ada kelas</h3><p>Buat kelas pertama Anda dengan tombol di atas.</p></div>`;
+  } else {
+    html += `<div class="tugas-list">`;
+    _daftarKelas.forEach(k=>{
+      const aktif = k.id === kelasId();
+      html += `
+        <div class="tugas-card" style="${aktif?'border-color:var(--p);box-shadow:0 0 0 2px var(--pl)':''}">
+          <div class="tugas-card-header">
+            <div>
+              <div class="tugas-judul">${k.namaMatkul||'-'} ${aktif?'<span class="badge badge-blue">Aktif</span>':''}</div>
+              <div class="tugas-meta">${svgIcon('clock')} ${k.jadwal||'-'} · 🚪 ${k.ruang||'-'} · ${k.sks||0} SKS</div>
+            </div>
+            <button class="btn-action btn-danger" onclick="hapusKelas('${k.id}','${(k.namaMatkul||'').replace(/'/g,"\\'")}')">${svgIcon('trash')}</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;background:var(--pl);border-radius:8px">
+            <div style="flex:1">
+              <div style="font-size:11px;color:var(--muted);font-weight:600">KODE GABUNG KELAS</div>
+              <div style="font-size:18px;font-weight:800;color:var(--p);letter-spacing:1px">${k.kodeKelas||'-'}</div>
+            </div>
+            <div style="font-size:11px;color:var(--muted)">Bagikan kode ini ke mahasiswa</div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            ${!aktif?`<button class="btn-action btn-secondary" onclick="gantiKelasAktif('${k.id}')">Jadikan Aktif</button>`:''}
+            <button class="btn-action btn-secondary" onclick="editKelas('${k.id}')">${svgIcon('edit')} Edit Info</button>
+          </div>
+        </div>`;
+    });
+    html += `</div>`;
   }
+  setContent(html);
 }
 
-window.simpanPengaturan = async () => {
-  const namaMatkul = document.getElementById('cfgNamaMatkul').value.trim();
-  const sks = document.getElementById('cfgSks').value.trim();
-  const jadwal = document.getElementById('cfgJadwal').value.trim();
-  const ruang = document.getElementById('cfgRuang').value.trim();
+async function renderGabungKelas(){
+  let html = `<div class="card">
+    <div style="font-size:13px;font-weight:700;margin-bottom:10px">${svgIcon('plus')} Gabung ke Kelas Baru</div>
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">Kode Kelas</label>
+    <input class="inp" id="kodeGabung" placeholder="Contoh: A1B2C3" style="text-transform:uppercase;letter-spacing:1px;font-weight:700">
+    <button class="btn-submit" onclick="gabungKelas()">Gabung</button>
+  </div>`;
 
+  if(_daftarKelas.length > 0){
+    html += `<div class="section-title" style="margin:16px 0 10px">Kelas yang Sudah Diikuti</div>`;
+    html += `<div class="tugas-list">${_daftarKelas.map(k=>`
+      <div class="tugas-card" style="${k.id===kelasId()?'border-color:var(--p);box-shadow:0 0 0 2px var(--pl)':''}">
+        <div class="tugas-judul">${k.namaMatkul||'-'} ${k.id===kelasId()?'<span class="badge badge-blue">Aktif</span>':''}</div>
+        <div class="tugas-meta">${svgIcon('clock')} ${k.jadwal||'-'} · 🚪 ${k.ruang||'-'}</div>
+        ${k.id!==kelasId()?`<button class="btn-action btn-secondary" style="margin-top:8px" onclick="gantiKelasAktif('${k.id}')">Jadikan Aktif</button>`:''}
+      </div>`).join('')}</div>`;
+  }
+  setContent(html);
+}
+
+window.gabungKelas = async () => {
+  const kode = document.getElementById('kodeGabung').value.trim().toUpperCase();
+  if(!kode) return toast('⚠️ Masukkan kode kelas dulu');
+  try {
+    const snap = await getDocs(query(collection(db,'kelas'), where('kodeKelas','==',kode)));
+    if(snap.empty) return toast('❌ Kode kelas tidak ditemukan');
+    const kelasDoc = snap.docs[0];
+    const kelasIds = user.kelasIds || [];
+    if(kelasIds.includes(kelasDoc.id)) return toast('⚠️ Kamu sudah tergabung di kelas ini');
+
+    const newKelasIds = [...kelasIds, kelasDoc.id];
+    await updateDoc(doc(db,'users',user.id), { kelasIds: newKelasIds });
+    user.kelasIds = newKelasIds;
+
+    toast('✅ Berhasil gabung ke kelas '+kelasDoc.data().namaMatkul);
+    await loadDaftarKelas();
+    localStorage.setItem('kelasAktif_'+user.id, kelasDoc.id);
+    _kelasAktif = _daftarKelas.find(k=>k.id===kelasDoc.id) || _kelasAktif;
+    renderKelasSelector();
+    document.getElementById('kodeGabung').value = '';
+    await renderGabungKelas();
+  } catch(e){
+    toast('❌ Gagal: '+e.message);
+  }
+};
+
+window.bukaFormKelasBaru = () => {
+  openModal('Buat Kelas Baru', `
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">📚 Nama Mata Kuliah</label>
+    <input class="inp" id="newKelasNama" placeholder="Contoh: Pengantar Statistika - Kelas A">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">📋 SKS</label>
+    <input class="inp" type="number" id="newKelasSks" placeholder="Contoh: 3" min="1" max="6">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">⏰ Jadwal</label>
+    <input class="inp" id="newKelasJadwal" placeholder="Contoh: Senin, 08:00 - 10:30">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">🚪 Ruang</label>
+    <input class="inp" id="newKelasRuang" placeholder="Contoh: Lab Komputer 2">
+    <button class="btn-submit" onclick="simpanKelasBaru()">Buat Kelas</button>
+  `);
+};
+
+window.simpanKelasBaru = async () => {
+  const namaMatkul = document.getElementById('newKelasNama').value.trim();
+  const sks = document.getElementById('newKelasSks').value.trim();
+  const jadwal = document.getElementById('newKelasJadwal').value.trim();
+  const ruang = document.getElementById('newKelasRuang').value.trim();
   if(!namaMatkul) return toast('⚠️ Isi nama mata kuliah dulu');
 
   try {
-    await setDoc(doc(db,'config','appConfig'), {
-      NAMA_MATKUL: namaMatkul,
-      SKS: sks ? parseInt(sks) : null,
-      JADWAL: jadwal || null,
-      RUANG: ruang || null,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-    config.NAMA_MATKUL = namaMatkul;
-    config.SKS = sks ? parseInt(sks) : null;
-    config.JADWAL = jadwal || null;
-    config.RUANG = ruang || null;
-    toast('✅ Pengaturan berhasil disimpan!');
+    const kodeKelas = generateKodeKelas();
+    const ref = await addDoc(collection(db,'kelas'), {
+      namaMatkul, sks: sks?parseInt(sks):null, jadwal: jadwal||null, ruang: ruang||null,
+      kodeKelas, dosenId: user.id, createdAt: serverTimestamp()
+    });
+    toast('✅ Kelas berhasil dibuat! Kode: '+kodeKelas);
+    closeModal();
+    await loadDaftarKelas();
+    _kelasAktif = _daftarKelas.find(k=>k.id===ref.id) || _kelasAktif;
+    localStorage.setItem('kelasAktif_'+user.id, ref.id);
+    renderKelasSelector();
+    await renderPengaturan();
   } catch(e){
-    toast('❌ Gagal menyimpan: '+e.message);
+    toast('❌ Gagal: '+e.message);
+  }
+};
+
+window.editKelas = async (kId) => {
+  const k = _daftarKelas.find(x=>x.id===kId);
+  if(!k) return;
+  openModal('Edit Info Kelas', `
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">📚 Nama Mata Kuliah</label>
+    <input class="inp" id="editKelasNama" value="${(k.namaMatkul||'').replace(/"/g,'&quot;')}">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">📋 SKS</label>
+    <input class="inp" type="number" id="editKelasSks" min="1" max="6" value="${k.sks||''}">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">⏰ Jadwal</label>
+    <input class="inp" id="editKelasJadwal" value="${(k.jadwal||'').replace(/"/g,'&quot;')}">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin-bottom:6px">🚪 Ruang</label>
+    <input class="inp" id="editKelasRuang" value="${(k.ruang||'').replace(/"/g,'&quot;')}">
+    <button class="btn-submit" onclick="simpanEditKelas('${kId}')">Simpan Perubahan</button>
+  `);
+};
+
+window.simpanEditKelas = async (kId) => {
+  const namaMatkul = document.getElementById('editKelasNama').value.trim();
+  const sks = document.getElementById('editKelasSks').value.trim();
+  const jadwal = document.getElementById('editKelasJadwal').value.trim();
+  const ruang = document.getElementById('editKelasRuang').value.trim();
+  if(!namaMatkul) return toast('⚠️ Nama mata kuliah wajib diisi');
+  try {
+    await updateDoc(doc(db,'kelas',kId), {
+      namaMatkul, sks: sks?parseInt(sks):null, jadwal: jadwal||null, ruang: ruang||null
+    });
+    toast('✅ Info kelas diperbarui!');
+    closeModal();
+    await loadDaftarKelas();
+    if(kelasId()===kId){
+      config = { NAMA_MATKUL:_kelasAktif.namaMatkul, SKS:_kelasAktif.sks, JADWAL:_kelasAktif.jadwal, RUANG:_kelasAktif.ruang };
+    }
+    renderKelasSelector();
+    await renderPengaturan();
+  } catch(e){
+    toast('❌ Gagal: '+e.message);
+  }
+};
+
+window.hapusKelas = async (kId, nama) => {
+  if(!confirm(`Hapus kelas "${nama}"?\n\nSemua pertemuan, materi, tugas, kuis, absensi, nilai, dan chat di kelas ini TIDAK otomatis terhapus dari database (hanya dokumen kelasnya yang terhapus), tapi kelas ini tidak akan muncul lagi di aplikasi.`)) return;
+  try {
+    await deleteDoc(doc(db,'kelas',kId));
+    toast('🗑️ Kelas dihapus');
+    await loadDaftarKelas();
+    renderKelasSelector();
+    buildNav();
+    await renderPengaturan();
+  } catch(e){
+    toast('❌ Gagal: '+e.message);
   }
 };
 
@@ -2741,13 +2987,14 @@ window.simpanPengaturan = async () => {
     <!--<div class="sb-brand">🎓 EduCampus</div>-->
     <div class="sb-brand"><img src="images/logos.png"  style="height:32px;object-fit:contain;flex-shrink:0;"></div>
     <div class="sb-user">
-      <div class="sb-av" id="sbAv">?</div>
-      <div style="min-width:0">
-        <div class="sb-uname" id="sbName">...</div>
-        <div id="sbRole"></div>
-      </div>
-    </div>
-    <div class="sb-nav" id="navMenu"></div>
+  <div class="sb-av" id="sbAv">?</div>
+  <div style="min-width:0">
+    <div class="sb-uname" id="sbName">...</div>
+    <div id="sbRole"></div>
+  </div>
+</div>
+<div id="kelasSelectorWrap"></div>
+<div class="sb-nav" id="navMenu"></div>
   </div>
 
   <div class="main">
