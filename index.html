@@ -1875,14 +1875,12 @@ async function renderChat(){
           <textarea id="chatInput" placeholder="Tulis pesan..." 
             style="flex:1;border:none;outline:none;resize:none;font-family:inherit;font-size:14px;line-height:1.5;max-height:100px;overflow-y:auto;background:transparent;color:var(--ink)"
             rows="1"
-            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();kirimChat();}"
             oninput="autoResizeChat(this)"></textarea>
           <button onclick="kirimChat()" style="background:var(--p);border:none;border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;flex-shrink:0;transition:background .15s"
             onmouseover="this.style.background='var(--pd)'" onmouseout="this.style.background='var(--p)'">
             ${svgIcon('send')}
           </button>
         </div>
-        <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px">Enter kirim · Shift+Enter baris baru</div>
       </div>
     </div>`);
   startChatListener();
