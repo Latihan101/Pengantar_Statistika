@@ -28,6 +28,27 @@
     const auth = getAuth(app);
     const db = getFirestore(app);
     window.db = db; window.auth = auth;
+    let _pendingFcmToken = null;
+
+window.receiveFcmToken = async function(token) {
+  _pendingFcmToken = token; // Simpan dulu
+  if (!user || !user.id) return; // Kalau belum login, tunggu
+  await simpanFcmToken(token);
+};
+
+async function simpanFcmToken(token) {
+  if (!token || !user?.id) return;
+  try {
+    await setDoc(doc(db, 'fcm_tokens', user.id), {
+      token: token,
+      platform: 'android',
+      updatedAt: serverTimestamp()
+    });
+    console.log('FCM token tersimpan:', token.substring(0,20)+'...');
+  } catch (e) {
+    console.error('Gagal simpan FCM token:', e);
+  }
+}
 
     const CLOUDINARY_CLOUD_NAME = 'dfiuxdomm';
     const CLOUDINARY_UPLOAD_PRESET = 'educampus_unsigned';
@@ -97,6 +118,7 @@ let _daftarKelas = [];      // daftar kelas yang relevan untuk user ini
 
     async function startApp(u) {
   user = u;
+  if(_pendingFcmToken) await simpanFcmToken(_pendingFcmToken);
   document.getElementById('screen-login').style.display = 'none';
   const initials = (u.nama||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
   if(u.fotoUrl){
@@ -2454,20 +2476,80 @@ window.kirimChat = async () => {
   const replyData = _replyTarget ? { nama: _replyTarget.nama, isi: _replyTarget.isi } : null;
   try {
     await addDoc(collection(db,'chat'),{
-  kelasId: kelasId(),
-  isi,
-  pengirimId: user.id,
-  pengirimNama: user.nama,
-  pengirimRole: user.role,
-  replyTo: replyData,
-  createdAt: serverTimestamp()
-});
+      kelasId: kelasId(),
+      isi,
+      pengirimId: user.id,
+      pengirimNama: user.nama,
+      pengirimRole: user.role,
+      replyTo: replyData,
+      createdAt: serverTimestamp()
+    });
+
+    // ✅ Kirim notifikasi FCM
+    kirimNotifChat(isi);
+
     cancelReply();
   } catch(e){
     toast('❌ Gagal kirim: '+e.message);
     input.value = isi;
   }
 };
+
+async function kirimNotifChat(isiPesan) {
+  try {
+    // Ambil token semua anggota kelas dari koleksi fcm_tokens
+    const mhsSnap = await getDocs(
+      query(collection(db,'users'), where('kelasIds','array-contains', kelasId()))
+    );
+    const dosenSnap = await getDocs(
+      query(collection(db,'kelas'), where('dosenId','!=', user.id))
+    );
+
+    const tokens = [];
+
+    // Ambil token dari koleksi fcm_tokens
+    for(const d of mhsSnap.docs) {
+      if(d.id === user.id) continue;
+      try {
+        const tokenSnap = await getDoc(doc(db,'fcm_tokens', d.id));
+        if(tokenSnap.exists() && tokenSnap.data().token) {
+          tokens.push(tokenSnap.data().token);
+        }
+      } catch(e){}
+    }
+
+    // Ambil token dosen
+    if(user.role !== 'dosen') {
+      const kelasSnap = await getDoc(doc(db,'kelas', kelasId()));
+      if(kelasSnap.exists()) {
+        const dosenId = kelasSnap.data().dosenId;
+        if(dosenId && dosenId !== user.id) {
+          try {
+            const tokenSnap = await getDoc(doc(db,'fcm_tokens', dosenId));
+            if(tokenSnap.exists() && tokenSnap.data().token) {
+              tokens.push(tokenSnap.data().token);
+            }
+          } catch(e){}
+        }
+      }
+    }
+
+    if(tokens.length === 0) return;
+
+    await fetch('http://localhost:3000/send-notification-multiple', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tokens,
+        title: `${user.nama} · ${config.NAMA_MATKUL || 'Chat'}`,
+        body: isiPesan.length > 100 ? isiPesan.substring(0,100)+'...' : isiPesan,
+        chatId: kelasId()
+      })
+    });
+  } catch(e) {
+    console.warn('Notif FCM gagal:', e.message);
+  }
+}
 
 window.hapusChat = async (msgId) => {
   if(!confirm('Hapus pesan ini?')) return;
